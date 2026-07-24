@@ -162,36 +162,6 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-// [TEMPORARY] Seed admin user - REMOVE THIS ENDPOINT AFTER RUNNING ONCE
-router.post('/seed-admin', async (req, res, next) => {
-  try {
-    const bcrypt = require('bcryptjs');
-    const hashedPassword = await bcrypt.hash('YourStrongPassword123!', 10);
-    
-    const result = await pool.query(
-      `INSERT INTO users (phone, email, password_hash, role, status, date_of_birth)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, phone, email, role, status`,
-      ['5551234567', 'admin@zelo.local', hashedPassword, 'admin', 'active', '1990-01-01']
-    );
-    
-    const user = result.rows[0];
-    res.status(201).json({
-      success: true,
-      message: 'Admin user created successfully',
-      data: {
-        user,
-        loginInfo: { phone: '5551234567', password: 'YourStrongPassword123!' }
-      },
-    });
-  } catch (error) {
-    if (error.code === '23505') { // Unique constraint violation
-      return res.status(400).json({ error: 'User with phone 5551234567 already exists' });
-    }
-    next(error);
-  }
-});
-
 // Get profile
 router.get('/profile', authMiddleware, async (req, res, next) => {
   try {
