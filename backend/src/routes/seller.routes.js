@@ -154,7 +154,6 @@ for (const field of allowedFields) {
     updates.push(`${field} = $${values.length}`);
   }
 }
-    }
     if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
 
     values.push(itemId, sellerId);
