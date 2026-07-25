@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
+const CLOUD_NAME = 'jwv51r23';
+const UPLOAD_PRESET = 'zelo_unsigned';
 import { useAuth } from '../context/AuthContext';
 
-const formatUSD = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const emptyForm = { name: '', description: '', price: '', category: 'food', stock_qty: '', weight_class: 'light' };
+const emptyForm = { name: '', description: '', price: '', category: 'food', stock_qty: '', weight_class: 'light', images: [], video_url: '' };
 
 export default function Catalog() {
   const { profile } = useAuth();
@@ -12,8 +12,56 @@ export default function Catalog() {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [form, setForm] = useState(emptyForm);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState(null);
+
+  const handleItemImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingImage(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.secure_url) {
+        setForm((f) => ({ ...f, images: [...f.images, data.secure_url] }));
+      } else {
+        setError('Image upload failed. Please try again.');
+      }
+    } catch (err) {
+      setError('Image upload failed. Please try again.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleItemVideoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingVideo(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.secure_url) {
+        setForm((f) => ({ ...f, video_url: data.secure_url }));
+      } else {
+        setError('Video upload failed. Please try again.');
+      }
+    } catch (err) {
+      setError('Video upload failed. Please try again.');
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
 
   const load = () => {
     if (!sellerId) return;
@@ -89,6 +137,26 @@ export default function Catalog() {
               <option value="produce">Produce</option>
               <option value="retail">Retail</option>
             </select>
+          </div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <label>Photos</label>
+            <input type="file" accept="image/*" onChange={handleItemImageUpload} disabled={uploadingImage} />
+            {uploadingImage && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+            {form.images.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                {form.images.map((url, i) => (
+                  <img key={i} src={url} alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6 }} />
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <label>Video (optional)</label>
+            <input type="file" accept="video/*" onChange={handleItemVideoUpload} disabled={uploadingVideo} />
+            {uploadingVideo && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+            {form.video_url && (
+              <video src={form.video_url} controls style={{ width: '100%', maxHeight: 160, marginTop: 8, borderRadius: 6 }} />
+            )}
           </div>
           <button type="submit" className="primary" disabled={submitting}>{submitting ? 'Adding…' : 'Add item'}</button>
         </form>
