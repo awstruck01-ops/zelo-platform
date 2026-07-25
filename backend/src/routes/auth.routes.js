@@ -123,7 +123,7 @@ router.post('/register', async (req, res, next) => {
 
 // Login
 router.post('/login', async (req, res, next) => {
-  try {\n    const { phone, password } = req.body;
+  try {const { phone, password } = req.body;
     if (!phone || !password) {
       return res.status(400).json({ error: 'Phone and password are required' });
     }
