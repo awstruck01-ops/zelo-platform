@@ -43,7 +43,8 @@ export default function SellerListScreen({ navigation }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.live} />}
         contentContainerStyle={{ padding: 16, gap: 12 }}
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>No sellers found nearby.</Text>}
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
+       renderItem={({ item }) => (
+         <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
   {item.image_url && (
     <Image source={{ uri: item.image_url }} style={styles.cardImage} />
   )}
