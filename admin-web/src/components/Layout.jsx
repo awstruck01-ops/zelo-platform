@@ -9,9 +9,12 @@ export default function Layout() {
   };
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">Zelo<span>Ops</span></div>
+   <div className="shell">
+        <aside className="sidebar">
+          <div className="sidebar-brand" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img src="/zelo-logo-horizontal.svg" alt="Zelo" style={{ height: 24 }} />
+            <span>Ops</span>
+          </div>
         <NavLink to="/" end className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Overview</NavLink>
         <NavLink to="/live-map" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Live map</NavLink>
         <NavLink to="/transactions" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Transactions</NavLink>
