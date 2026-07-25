@@ -1,6 +1,6 @@
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Image, Text } from 'react-native';
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { CartProvider } from '../context/CartContext';
@@ -50,7 +50,18 @@ function CustomerStack() {
   return (
     <CartProvider>
       <Stack.Navigator screenOptions={screenOptions}>
-        <Stack.Screen name="SellerList" component={SellerListScreen} options={{ title: 'Zelo' }} />
+       <Stack.Screen
+  name="SellerList"
+  component={SellerListScreen}
+  options={{
+    headerTitle: () => (
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Image source={require('../../assets/icon.png')} style={{ width: 28, height: 28, borderRadius: 6, marginRight: 8 }} />
+        <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700' }}>Zelo</Text>
+      </View>
+    ),
+  }}
+/>
         <Stack.Screen name="SellerDetail" component={SellerDetailScreen} options={{ title: 'Menu' }} />
         <Stack.Screen name="Cart" component={CartScreen} options={{ title: 'Your order' }} />
         <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} options={{ title: 'Track order', headerBackVisible: false }} />
