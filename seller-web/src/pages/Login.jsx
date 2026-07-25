@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import api from '../api';
 
 export default function Login() {
@@ -52,6 +52,9 @@ export default function Login() {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+        <p style={{ textAlign: 'center', marginTop: 12 }}>
+  New seller? <Link to="/register">Create an account</Link>
+</p>
       </div>
     </div>
   );
