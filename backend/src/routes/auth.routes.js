@@ -31,6 +31,7 @@ router.post('/register', async (req, res, next) => {
     const {
       phone, otp, password, role, email, date_of_birth,
       business_name, category, vehicle_type, address, lat, lng,
+      image_url, agreed_to_tos,
     } = req.body;
 
     if (!phone || !otp || !password) {
@@ -86,10 +87,13 @@ router.post('/register', async (req, res, next) => {
           error: 'business_name, address, lat, and lng are required for sellers',
         });
       }
+      if (!agreed_to_tos) {
+        return res.status(400).json({ error: 'You must agree to the Terms of Service' });
+      }
       await pool.query(
-        `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, verification_status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [user.id, business_name, category || 'restaurant', address, lat, lng]
+       `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, image_url, agreed_to_tos, agreed_to_tos_at, verification_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), 'pending')`,
+        [user.id, business_name, category || 'restaurant', address, lat, lng, image_url || null, true]
       );
     } else if (role === 'driver') {
       if (!vehicle_type) {
