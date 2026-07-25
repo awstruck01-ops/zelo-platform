@@ -1,0 +1,179 @@
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import api from '../api';
+
+const CLOUD_NAME = 'jwv51r23';
+const UPLOAD_PRESET = 'zelo_unsigned';
+
+export default function Register() {
+  const [businessName, setBusinessName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [address, setAddress] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [agreedToTos, setAgreedToTos] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+        { method: 'POST', body: formData }
+      );
+      const data = await res.json();
+      if (data.secure_url) {
+        setImageUrl(data.secure_url);
+      } else {
+        setError('Image upload failed. Please try again.');
+      }
+    } catch (err) {
+      setError('Image upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!agreedToTos) {
+      setError('You must agree to the Terms of Service to continue.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.post('/auth/register', {
+        role: 'seller',
+        businessName,
+        phone,
+        password,
+        address,
+        imageUrl,
+        agreedToTos: true,
+      });
+      navigate('/login');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="login-shell">
+      <div className="login-card">
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="/zelo-logo-horizontal.svg" alt="Zelo" style={{ height: 36 }} />
+          <span style={{ color: 'var(--accent-live)' }}>Seller</span>
+        </h1>
+        <p>Create your storefront on Zelo</p>
+
+        {error && <div className="error-banner">{error}</div>}
+
+        <form onSubmit={submit}>
+          <div className="field">
+            <label htmlFor="businessName">Business name</label>
+            <input
+              id="businessName"
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              placeholder="Mama Ngozi Kitchen"
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="phone">Phone number</label>
+            <input
+              id="phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="(555) 123-4567"
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="address">Business address</label>
+            <input
+              id="address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="123 Main St, City, State"
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="storeImage">Storefront photo</label>
+            <input
+              id="storeImage"
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              disabled={uploading}
+            />
+            {uploading && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+            {imageUrl && (
+              <img
+                src={imageUrl}
+                alt="Storefront preview"
+                style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+              />
+            )}
+          </div>
+
+          <div className="field" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <input
+              id="tos"
+              type="checkbox"
+              checked={agreedToTos}
+              onChange={(e) => setAgreedToTos(e.target.checked)}
+              style={{ marginTop: 3 }}
+            />
+            <label htmlFor="tos" style={{ fontSize: 14 }}>
+              I agree to Zelo's Terms of Service and Seller Agreement
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            className="primary"
+            style={{ width: '100%', marginTop: 8 }}
+            disabled={loading || uploading}
+          >
+            {loading ? 'Creating account...' : 'Create seller account'}
+          </button>
+        </form>
+
+        <p style={{ textAlign: 'center', marginTop: 16 }}>
+          Already have an account? <Link to="/login">Sign in</Link>
+        </p>
+      </div>
+    </div>
+  );
+}
