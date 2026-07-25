@@ -33,7 +33,10 @@ export default function Login() {
   return (
     <div className="login-shell">
       <div className="login-card">
-        <h1>Zelo <span style={{ color: 'var(--accent-live)' }}>Seller</span></h1>
+       <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img src="/zelo-logo-horizontal.svg" alt="Zelo" style={{ height: 36 }} />
+              <span style={{ color: 'var(--accent-live)' }}>Seller</span>
+            </h1>
         <p>Manage your storefront, orders, and earnings</p>
         {error && <div className="error-banner">{error}</div>}
         <form onSubmit={submit}>
