@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -43,17 +43,19 @@ export default function SellerListScreen({ navigation }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.live} />}
         contentContainerStyle={{ padding: 16, gap: 12 }}
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>No sellers found nearby.</Text>}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{item.business_name}</Text>
-              <Text style={styles.cardSub}>{item.category} · {item.item_count} item(s)</Text>
-              {item.distance_mi != null && (
-                <Text style={styles.cardSub}>{Number(item.distance_mi).toFixed(1)} mi away</Text>
-              )}
-            </View>
-            {item.avg_rating && <Text style={styles.rating}>★ {item.avg_rating}</Text>}
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
+  {item.image_url && (
+    <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+  )}
+  <View style={{ flex: 1 }}>
+    <Text style={styles.cardTitle}>{item.business_name}</Text>
+    <Text style={styles.cardSub}>{item.category} · {item.item_count} item(s)</Text>
+    {item.distance_mi != null && (
+      <Text style={styles.cardSub}>{Number(item.distance_mi).toFixed(1)} mi away</Text>
+    )}
+  </View>
+  {item.avg_rating && <Text style={styles.rating}>★ {item.avg_rating}</Text>}
+</TouchableOpacity>
         )}
       />
 
@@ -72,6 +74,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     borderRadius: 12, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
+  cardImage: { width: 64, height: 64, borderRadius: 8, marginRight: 12, backgroundColor: colors.border },
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
   cardSub: { color: colors.textDim, fontSize: 13, marginTop: 2, textTransform: 'capitalize' },
   rating: { color: colors.pending, fontWeight: '600' },
