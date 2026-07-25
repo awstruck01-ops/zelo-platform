@@ -182,7 +182,7 @@ router.post('/seed-seller', async (req, res, next) => {
       `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, verification_status, is_available)
        VALUES ($1, $2, $3, $4, $5, $6, $7, true)
        RETURNING id, business_name, category, verification_status`,
-      [user.id, 'Test Vendor', 'restaurant', '123 Test St, Test City', 40.7128, -74.0060]
+      [user.id, 'Test Vendor', 'restaurant', '123 Test St, Test City', 40.7128, -74.0060, 'pending']
     );
     
     const seller = sellerResult.rows[0];
