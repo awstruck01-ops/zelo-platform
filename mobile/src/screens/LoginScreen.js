@@ -24,7 +24,7 @@ export default function LoginScreen({ navigation }) {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Text style={styles.title}>Dash<Text style={{ color: colors.live }}>Naija</Text></Text>
+      <Text style={styles.title}>Zelo</Text>
       <Text style={styles.subtitle}>Food, groceries, and more — delivered</Text>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
