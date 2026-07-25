@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Image, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 
@@ -24,7 +24,8 @@ export default function LoginScreen({ navigation }) {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Text style={styles.title}>Zelo</Text>
+      <Image source={require('../../assets/icon.png')} style={{ width: 64, height: 64, borderRadius: 16, alignSelf: 'center', marginBottom: 12 }} />
+<Text style={styles.title}>Zelo</Text>
       <Text style={styles.subtitle}>Food, groceries, and more — delivered</Text>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
