@@ -147,11 +147,13 @@ router.patch('/:sellerId/items/:itemId', authMiddleware, roleMiddleware(['seller
 ];
     const updates = [];
     const values = [];
-    for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        values.push(req.body[field]);
-        updates.push(`${field} = $${values.length}`);
-      }
+   const jsonFields = ['options', 'metadata', 'images'];
+for (const field of allowedFields) {
+  if (req.body[field] !== undefined) {
+    values.push(jsonFields.includes(field) ? JSON.stringify(req.body[field]) : req.body[field]);
+    updates.push(`${field} = $${values.length}`);
+  }
+}
     }
     if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
 
