@@ -172,7 +172,7 @@ router.post('/seed-seller', async (req, res, next) => {
       `INSERT INTO users (phone, email, password_hash, role, status, date_of_birth)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, phone, email, role, status`,
-      ['5551234567', 'seller@zelo.local', hashedPassword, 'seller', 'active', '1990-01-01']
+      ['5559876543', 'seller@zelo.local', hashedPassword, 'seller', 'active', '1990-01-01']
     );
     
     const user = userResult.rows[0];
@@ -194,7 +194,7 @@ router.post('/seed-seller', async (req, res, next) => {
       data: {
         user,
         seller,
-        loginInfo: { phone: '5551234567', password: 'YourStrongPassword123!' },
+        loginInfo: { phone: '5559876543', password: 'YourStrongPassword123!' },
         token
       },
     });
