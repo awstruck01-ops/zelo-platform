@@ -161,50 +161,6 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-// [TEMPORARY] Seed seller account - REMOVE THIS ENDPOINT AFTER RUNNING ONCE
-router.post('/seed-seller', async (req, res, next) => {
-  try {
-    const bcrypt = require('bcryptjs');
-    const hashedPassword = await bcrypt.hash('YourStrongPassword123!', 10);
-    
-    // Create user with seller role
-    const userResult = await pool.query(
-      `INSERT INTO users (phone, email, password_hash, role, status, date_of_birth)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, phone, email, role, status`,
-      ['5559876543', 'seller@zelo.local', hashedPassword, 'seller', 'active', '1990-01-01']
-    );
-    
-    const user = userResult.rows[0];
-    
-    // Create seller profile
-    const sellerResult = await pool.query(
-      `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, verification_status, is_available)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
-       RETURNING id, business_name, category, verification_status`,
-      [user.id, 'Test Vendor', 'restaurant', '123 Test St, Test City', 40.7128, -74.0060, 'pending']
-    );
-    
-    const seller = sellerResult.rows[0];
-    const token = require('../utils/jwt').generateToken(user);
-    
-    res.status(201).json({
-      success: true,
-      message: 'Seller account created successfully',
-      data: {
-        user,
-        seller,
-        loginInfo: { phone: '5559876543', password: 'YourStrongPassword123!' },
-        token
-      },
-    });
-  } catch (error) {
-    if (error.code === '23505') { // Unique constraint violation
-      return res.status(400).json({ error: 'User with phone 5551234567 already exists' });
-    }
-    next(error);
-  }
-});
 
 // Get profile
 router.get('/profile', authMiddleware, async (req, res, next) => {
