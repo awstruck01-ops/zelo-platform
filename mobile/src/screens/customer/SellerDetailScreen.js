@@ -35,6 +35,7 @@ export default function SellerDetailScreen({ route, navigation }) {
   if (error) return <View style={styles.container}><Text style={styles.error}>{error}</Text></View>;
 
   return (
+    <View style={styles.container}>
     <View style={{ padding: 16 }}>
   {seller.image_url && (
     <Image source={{ uri: seller.image_url }} style={styles.storefrontImage} />
@@ -46,7 +47,8 @@ export default function SellerDetailScreen({ route, navigation }) {
         data={seller.items || []}
         keyExtractor={(i) => i.id}
         contentContainerStyle={{ padding: 16, gap: 10 }}
-       <View style={styles.itemCard}>
+       renderItem={({ item }) => (
+         <View style={styles.itemCard}>
   {item.images && item.images.length > 0 && (
     <Image source={{ uri: item.images[0] }} style={styles.itemImage} />
   )}
@@ -57,8 +59,6 @@ export default function SellerDetailScreen({ route, navigation }) {
   </View>
   <TouchableOpacity style={styles.addButton} onPress={() => addItem(seller, item)}>
     <Text style={{ color: colors.liveText, fontWeight: '700' }}>Add</Text>
-  </TouchableOpacity>
-</View>
             </TouchableOpacity>
           </View>
         )}
