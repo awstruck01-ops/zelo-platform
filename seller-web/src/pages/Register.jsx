@@ -6,13 +6,19 @@ const CLOUD_NAME = 'jwv51r23';
 const UPLOAD_PRESET = 'zelo_unsigned';
 
 export default function Register() {
+  const [step, setStep] = useState('details'); // 'details' | 'otp'
   const [businessName, setBusinessName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [address, setAddress] = useState('');
+  const [lat, setLat] = useState(null);
+  const [lng, setLng] = useState(null);
+  const [locating, setLocating] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [agreedToTos, setAgreedToTos] = useState(false);
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -44,10 +50,38 @@ export default function Register() {
     }
   };
 
-  const submit = async (e) => {
+  const useCurrentLocation = () => {
+    setError('');
+    if (!navigator.geolocation) {
+      setError('Location is not supported on this browser.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLat(position.coords.latitude);
+        setLng(position.coords.longitude);
+        setLocating(false);
+      },
+      () => {
+        setError('Could not get your location. Please allow location access and try again.');
+        setLocating(false);
+      }
+    );
+  };
+
+  const requestOtp = async (e) => {
     e.preventDefault();
     setError('');
 
+    if (!businessName || !phone || !password || !dateOfBirth || !address) {
+      setError('Please fill in all fields.');
+      return;
+    }
+    if (lat === null || lng === null) {
+      setError('Please set your business location before continuing.');
+      return;
+    }
     if (!agreedToTos) {
       setError('You must agree to the Terms of Service to continue.');
       return;
@@ -55,14 +89,38 @@ export default function Register() {
 
     setLoading(true);
     try {
+      await api.post('/auth/send-otp', { phone });
+      setStep('otp');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!otp) {
+      setError('Please enter the code sent to your phone.');
+      return;
+    }
+
+    setLoading(true);
+    try {
       await api.post('/auth/register', {
         role: 'seller',
-        businessName,
         phone,
+        otp,
         password,
+        date_of_birth: dateOfBirth,
+        business_name: businessName,
         address,
-        imageUrl,
-        agreedToTos: true,
+        lat,
+        lng,
+        image_url: imageUrl || null,
+        agreed_to_tos: true,
       });
       navigate('/login');
     } catch (err) {
@@ -83,92 +141,147 @@ export default function Register() {
 
         {error && <div className="error-banner">{error}</div>}
 
-        <form onSubmit={submit}>
-          <div className="field">
-            <label htmlFor="businessName">Business name</label>
-            <input
-              id="businessName"
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              placeholder="Mama Ngozi Kitchen"
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="phone">Phone number</label>
-            <input
-              id="phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="(555) 123-4567"
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="address">Business address</label>
-            <input
-              id="address"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="123 Main St, City, State"
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="storeImage">Storefront photo</label>
-            <input
-              id="storeImage"
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              disabled={uploading}
-            />
-            {uploading && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
-            {imageUrl && (
-              <img
-                src={imageUrl}
-                alt="Storefront preview"
-                style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+        {step === 'details' && (
+          <form onSubmit={requestOtp}>
+            <div className="field">
+              <label htmlFor="businessName">Business name</label>
+              <input
+                id="businessName"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Mama Ngozi Kitchen"
+                required
               />
-            )}
-          </div>
+            </div>
 
-          <div className="field" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <input
-              id="tos"
-              type="checkbox"
-              checked={agreedToTos}
-              onChange={(e) => setAgreedToTos(e.target.checked)}
-              style={{ marginTop: 3 }}
-            />
-            <label htmlFor="tos" style={{ fontSize: 14 }}>
-              I agree to Zelo's Terms of Service and Seller Agreement
-            </label>
-          </div>
+            <div className="field">
+              <label htmlFor="phone">Phone number</label>
+              <input
+                id="phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(555) 123-4567"
+                required
+              />
+            </div>
 
-          <button
-            type="submit"
-            className="primary"
-            style={{ width: '100%', marginTop: 8 }}
-            disabled={loading || uploading}
-          >
-            {loading ? 'Creating account...' : 'Create seller account'}
-          </button>
-        </form>
+            <div className="field">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="dob">Date of birth</label>
+              <input
+                id="dob"
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="address">Business address</label>
+              <input
+                id="address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="123 Main St, City, State"
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label>Business location</label>
+              <button
+                type="button"
+                onClick={useCurrentLocation}
+                disabled={locating}
+                style={{ width: '100%' }}
+              >
+                {locating
+                  ? 'Getting location...'
+                  : lat !== null
+                  ? 'Location set ✓ (tap to update)'
+                  : 'Use my current location'}
+              </button>
+            </div>
+
+            <div className="field">
+              <label htmlFor="storeImage">Storefront photo</label>
+              <input
+                id="storeImage"
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                disabled={uploading}
+              />
+              {uploading && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {imageUrl && (
+                <img
+                  src={imageUrl}
+                  alt="Storefront preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <input
+                id="tos"
+                type="checkbox"
+                checked={agreedToTos}
+                onChange={(e) => setAgreedToTos(e.target.checked)}
+                style={{ marginTop: 3 }}
+              />
+              <label htmlFor="tos" style={{ fontSize: 14 }}>
+                I agree to Zelo's Terms of Service and Seller Agreement
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              className="primary"
+              style={{ width: '100%', marginTop: 8 }}
+              disabled={loading || uploading}
+            >
+              {loading ? 'Sending code...' : 'Continue'}
+            </button>
+          </form>
+        )}
+
+        {step === 'otp' && (
+          <form onSubmit={submit}>
+            <p style={{ fontSize: 14, opacity: 0.8 }}>
+              Enter the verification code sent to {phone}
+            </p>
+            <div className="field">
+              <label htmlFor="otp">Verification code</label>
+              <input
+                id="otp"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="123456"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              className="primary"
+              style={{ width: '100%', marginTop: 8 }}
+              disabled={loading}
+            >
+              {loading ? 'Creating account...' : 'Create seller account'}
+            </button>
+          </form>
+        )}
 
         <p style={{ textAlign: 'center', marginTop: 16 }}>
           Already have an account? <Link to="/login">Sign in</Link>
