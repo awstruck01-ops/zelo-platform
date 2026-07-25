@@ -43,11 +43,18 @@ export default function Verifications() {
           <div className="empty-state">Nothing to review.</div>
         ) : (
           <table>
-            <thead><tr><th>Business</th><th>Category</th><th>Phone</th><th>Address</th><th /></tr></thead>
+            <thead><tr><th>Photo</th><th>Business</th><th>Category</th><th>Phone</th><th>Address</th><th /></tr></thead>
             <tbody>
               {data?.sellers.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.business_name}</td>
+                 <td>
+                {s.image_url ? (
+                  <img src={s.image_url} alt={s.business_name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: 48, height: 48, borderRadius: 6, background: '#eee' }} />
+                )}
+              </td>
+              <td>{s.business_name}</td>
                   <td style={{ textTransform: 'capitalize' }}>{s.category}</td>
                   <td className="mono">{s.phone}</td>
                   <td>{s.address}</td>
