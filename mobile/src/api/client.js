@@ -2,7 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // When running on a physical device/emulator, replace localhost with your machine's LAN IP.
-export const API_BASE = 'http://localhost:5000/api/v1';
+export const API_BASE = 'https://zelo-backend-production.up.railway.app/api/v1';
 
 const api = axios.create({ baseURL: API_BASE });
 
