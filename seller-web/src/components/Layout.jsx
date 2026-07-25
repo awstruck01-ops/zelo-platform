@@ -15,7 +15,7 @@ export default function Layout() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="sidebar-brand">Zelo<span>Seller</span></div>
+        <div className="sidebar-brand"><img src="/zelo-logo-horizontal.svg" alt="Zelo" style={{ height: 24 }} /><span>Seller</span></div>
         {profile?.profile && (
           <div style={{ padding: '0 12px 16px', fontSize: 13, color: 'var(--text-dim)' }}>
             {profile.profile.business_name}
