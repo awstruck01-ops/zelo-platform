@@ -145,7 +145,6 @@ router.patch('/:sellerId/items/:itemId', authMiddleware, roleMiddleware(['seller
   'name', 'description', 'price', 'category', 'sub_category', 'stock_qty',
   'weight_class', 'weight_kg', 'requires_vehicle', 'options', 'metadata', 'images', 'is_available', 'video_url',
 ];
-    ];
     const updates = [];
     const values = [];
     for (const field of allowedFields) {
