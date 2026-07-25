@@ -94,7 +94,7 @@ router.post('/:id/items', authMiddleware, roleMiddleware(['seller', 'admin']), a
     const { id } = req.params;
     const {
       name, description, price, category, sub_category,
-      stock_qty, weight_class, weight_kg, requires_vehicle, options, metadata, images,
+     stock_qty, weight_class, weight_kg, requires_vehicle, options, metadata, images, video_url,
     } = req.body;
 
     if (!name || price === undefined || !category) {
@@ -112,13 +112,13 @@ router.post('/:id/items', authMiddleware, roleMiddleware(['seller', 'admin']), a
     const result = await pool.query(
       `INSERT INTO catalog_items (
         seller_id, name, description, price, category, sub_category,
-        stock_qty, weight_class, weight_kg, requires_vehicle, options, metadata, images
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        stock_qty, weight_class, weight_kg, requires_vehicle, options, metadata, images, video_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *`,
       [
         id, name, description || null, price, category, sub_category || null,
         stock_qty || 0, weight_class || 'light', weight_kg || null, requires_vehicle || null,
-        options || {}, metadata || {}, images || [],
+        options || {}, metadata || {}, images || [],video_url || null,
       ]
     );
 
@@ -142,8 +142,9 @@ router.patch('/:sellerId/items/:itemId', authMiddleware, roleMiddleware(['seller
     }
 
     const allowedFields = [
-      'name', 'description', 'price', 'category', 'sub_category', 'stock_qty',
-      'weight_class', 'weight_kg', 'requires_vehicle', 'options', 'metadata', 'images', 'is_available',
+  'name', 'description', 'price', 'category', 'sub_category', 'stock_qty',
+  'weight_class', 'weight_kg', 'requires_vehicle', 'options', 'metadata', 'images', 'is_available', 'video_url',
+];
     ];
     const updates = [];
     const values = [];
