@@ -118,7 +118,7 @@ router.post('/:id/items', authMiddleware, roleMiddleware(['seller', 'admin']), a
       [
         id, name, description || null, price, category, sub_category || null,
         stock_qty || 0, weight_class || 'light', weight_kg || null, requires_vehicle || null,
-        options || {}, metadata || {}, images || [],video_url || null,
+        JSON.stringify(options || {}), JSON.stringify(metadata || {}), JSON.stringify(images || []), video_url || null,
       ]
     );
 
