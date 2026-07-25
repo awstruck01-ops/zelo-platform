@@ -92,6 +92,7 @@ const initDatabase = async () => {
         description TEXT,
         price DECIMAL(12,2) NOT NULL,
         images JSONB DEFAULT '[]',
+              video_url VARCHAR(500),
         category VARCHAR(100) NOT NULL,
         sub_category VARCHAR(100),
         stock_qty INTEGER DEFAULT 0,
