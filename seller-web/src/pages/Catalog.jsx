@@ -5,6 +5,7 @@ const UPLOAD_PRESET = 'zelo_unsigned';
 import { useAuth } from '../context/AuthContext';
 
 const emptyForm = { name: '', description: '', price: '', category: 'food', stock_qty: '', weight_class: 'light', images: [], video_url: '' };
+const formatUSD = (n) => `$${Number(n || 0).toFixed(2)}`;
 
 export default function Catalog() {
   const { profile } = useAuth();
