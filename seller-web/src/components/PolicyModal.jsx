@@ -191,3 +191,47 @@ export default function PolicyModal({ open, onAgree, onClose }) {
               <h3 style={{ fontSize: 15, marginBottom: 6 }}>{section.title}</h3>
               {section.body.map((part, j) =>
                 Array.isArray(part) ? (
+                  <ul key={j} style={{ margin: '4px 0 8px', paddingLeft: 20, fontSize: 14, opacity: 0.85 }}>
+                    {part.map((item, k) => (
+                      <li key={k}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p key={j} style={{ fontSize: 14, opacity: 0.85, margin: '4px 0' }}>
+                    {part}
+                  </p>
+                )
+              )}
+            </div>
+          ))}
+          <p style={{ fontSize: 13, opacity: 0.6, textAlign: 'center', marginTop: 8 }}>
+            — End of agreement —
+          </p>
+        </div>
+
+        <div style={{ padding: '12px 24px 20px', borderTop: '1px solid #eee', display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid #ccc', background: 'transparent', cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onAgree}
+            disabled={!scrolledToBottom}
+            style={{
+              flex: 2, padding: '10px', borderRadius: 8, border: 'none',
+              background: scrolledToBottom ? 'var(--accent-live)' : '#ccc',
+              color: '#fff', fontWeight: 600,
+              cursor: scrolledToBottom ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {scrolledToBottom ? 'I Agree' : 'Scroll to read full agreement'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
