@@ -172,11 +172,12 @@ export default function PolicyModal({ open, onAgree, onClose }) {
           background: '#fff', borderRadius: 12, width: '100%', maxWidth: 560,
           maxHeight: '85vh', display: 'flex', flexDirection: 'column',
           boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
+          color: '#111',
         }}
       >
         <div style={{ padding: '20px 24px 12px', borderBottom: '1px solid #eee' }}>
-          <h2 style={{ margin: 0, fontSize: 20 }}>Seller Agreement &amp; Responsibilities</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, opacity: 0.7 }}>
+          <h2 style={{ margin: 0, fontSize: 20, color: '#111' }}>Seller Agreement &amp; Responsibilities</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, opacity: 0.7, color: '#333' }}>
             Please read the full agreement below. Scroll to the bottom to unlock "I Agree."
           </p>
         </div>
@@ -188,23 +189,23 @@ export default function PolicyModal({ open, onAgree, onClose }) {
         >
           {POLICY_SECTIONS.map((section, i) => (
             <div key={i} style={{ marginBottom: 18 }}>
-              <h3 style={{ fontSize: 15, marginBottom: 6 }}>{section.title}</h3>
+              <h3 style={{ fontSize: 15, marginBottom: 6, color: '#111' }}>{section.title}</h3>
               {section.body.map((part, j) =>
                 Array.isArray(part) ? (
-                  <ul key={j} style={{ margin: '4px 0 8px', paddingLeft: 20, fontSize: 14, opacity: 0.85 }}>
+                  <ul key={j} style={{ margin: '4px 0 8px', paddingLeft: 20, fontSize: 14, opacity: 0.85, color: '#222' }}>
                     {part.map((item, k) => (
                       <li key={k}>{item}</li>
                     ))}
                   </ul>
                 ) : (
-                  <p key={j} style={{ fontSize: 14, opacity: 0.85, margin: '4px 0' }}>
+                  <p key={j} style={{ fontSize: 14, opacity: 0.85, margin: '4px 0', color: '#222' }}>
                     {part}
                   </p>
                 )
               )}
             </div>
           ))}
-          <p style={{ fontSize: 13, opacity: 0.6, textAlign: 'center', marginTop: 8 }}>
+          <p style={{ fontSize: 13, opacity: 0.6, textAlign: 'center', marginTop: 8, color: '#555' }}>
             — End of agreement —
           </p>
         </div>
@@ -213,7 +214,7 @@ export default function PolicyModal({ open, onAgree, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid #ccc', background: 'transparent', cursor: 'pointer' }}
+            style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid #ccc', background: 'transparent', color: '#333', cursor: 'pointer' }}
           >
             Cancel
           </button>
