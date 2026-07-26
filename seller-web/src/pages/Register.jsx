@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../api';
+import PolicyModal from '../components/PolicyModal';
 
 const CLOUD_NAME = 'jwv51r23';
 const UPLOAD_PRESET = 'zelo_unsigned';
@@ -18,6 +19,9 @@ export default function Register() {
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [agreedToTos, setAgreedToTos] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [category, setCategory] = useState('restaurant');
+  const [mediaType, setMediaType] = useState('photo'); // 'photo' | 'video'
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,18 +37,19 @@ export default function Register() {
       formData.append('file', file);
       formData.append('upload_preset', UPLOAD_PRESET);
 
+      const resourceType = mediaType === 'video' ? 'video' : 'image';
       const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
         { method: 'POST', body: formData }
       );
       const data = await res.json();
       if (data.secure_url) {
         setImageUrl(data.secure_url);
       } else {
-        setError('Image upload failed. Please try again.');
+        setError('Upload failed. Please try again.');
       }
     } catch (err) {
-      setError('Image upload failed. Please try again.');
+      setError('Upload failed. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -116,6 +121,7 @@ export default function Register() {
         password,
         date_of_birth: dateOfBirth,
         business_name: businessName,
+        category,
         address,
         lat,
         lng,
@@ -155,12 +161,44 @@ export default function Register() {
             </div>
 
             <div className="field">
+              <label>Business type</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setCategory('restaurant')}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: 8,
+                    border: category === 'restaurant' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: category === 'restaurant' ? 'var(--accent-live)' : 'transparent',
+                    color: category === 'restaurant' ? '#fff' : 'inherit',
+                    cursor: 'pointer', fontWeight: 600,
+                  }}
+                >
+                  🍽️ Restaurant
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCategory('store')}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: 8,
+                    border: category === 'store' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: category === 'store' ? 'var(--accent-live)' : 'transparent',
+                    color: category === 'store' ? '#fff' : 'inherit',
+                    cursor: 'pointer', fontWeight: 600,
+                  }}
+                >
+                  🏪 Store
+                </button>
+              </div>
+            </div>
+
+            <div className="field">
               <label htmlFor="phone">Phone number</label>
               <input
                 id="phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="(555) 123-4567"
+                placeholder="1 (718) 810-3683"
                 required
               />
             </div>
@@ -215,35 +253,72 @@ export default function Register() {
             </div>
 
             <div className="field">
-              <label htmlFor="storeImage">Storefront photo</label>
+              <label>Storefront media</label>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => { setMediaType('photo'); setImageUrl(''); }}
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: 8,
+                    border: mediaType === 'photo' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: mediaType === 'photo' ? 'var(--accent-live)' : 'transparent',
+                    color: mediaType === 'photo' ? '#fff' : 'inherit', cursor: 'pointer',
+                  }}
+                >
+                  📷 Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMediaType('video'); setImageUrl(''); }}
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: 8,
+                    border: mediaType === 'video' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: mediaType === 'video' ? 'var(--accent-live)' : 'transparent',
+                    color: mediaType === 'video' ? '#fff' : 'inherit', cursor: 'pointer',
+                  }}
+                >
+                  🎥 Video
+                </button>
+              </div>
+
               <input
                 id="storeImage"
                 type="file"
-                accept="image/*"
+                accept={mediaType === 'video' ? 'video/*' : 'image/*'}
                 onChange={handleImageUpload}
                 disabled={uploading}
               />
               {uploading && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
-              {imageUrl && (
+              {imageUrl && mediaType === 'photo' && (
                 <img
                   src={imageUrl}
                   alt="Storefront preview"
                   style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
                 />
               )}
+              {imageUrl && mediaType === 'video' && (
+                <video
+                  src={imageUrl}
+                  controls
+                  style={{ width: '100%', maxHeight: 160, borderRadius: 8, marginTop: 8 }}
+                />
+              )}
             </div>
 
-            <div className="field" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <input
-                id="tos"
-                type="checkbox"
-                checked={agreedToTos}
-                onChange={(e) => setAgreedToTos(e.target.checked)}
-                style={{ marginTop: 3 }}
-              />
-              <label htmlFor="tos" style={{ fontSize: 14 }}>
-                I agree to Zelo's Terms of Service and Seller Agreement
-              </label>
+            <div className="field">
+              <label>Seller Agreement</label>
+              <button
+                type="button"
+                onClick={() => setPolicyOpen(true)}
+                style={{
+                  width: '100%', padding: '10px', borderRadius: 8,
+                  border: agreedToTos ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                  background: agreedToTos ? 'rgba(0,150,80,0.08)' : 'transparent',
+                  cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                {agreedToTos ? '✅ Agreement accepted (tap to review)' : '📄 Read & agree to Seller Agreement'}
+              </button>
             </div>
 
             <button
@@ -287,6 +362,12 @@ export default function Register() {
           Already have an account? <Link to="/login">Sign in</Link>
         </p>
       </div>
+
+      <PolicyModal
+        open={policyOpen}
+        onAgree={() => { setAgreedToTos(true); setPolicyOpen(false); }}
+        onClose={() => setPolicyOpen(false)}
+      />
     </div>
   );
 }
