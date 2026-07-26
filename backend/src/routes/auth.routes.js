@@ -4,6 +4,12 @@ const redis = require('../config/redis');
 const { generateToken } = require('../utils/jwt');
 const { hashPassword, comparePassword, calculateAge } = require('../utils/password');
 const { authMiddleware } = require('../middleware/auth');
+const { Vonage } = require('@vonage/server-sdk');
+
+const vonage = new Vonage({
+  apiKey: process.env.VONAGE_API_KEY,
+  apiSecret: process.env.VONAGE_API_SECRET
+});
 
 const router = express.Router();
 
@@ -16,8 +22,16 @@ router.post('/send-otp', async (req, res, next) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await redis.setex(`otp:${phone}`, 300, otp);
 
-    // In production, send via an SMS provider (e.g. Termii). Logged here for dev/testing.
-    console.log(`📱 OTP for ${phone}: ${otp}`);
+    try {
+        await vonage.sms.send({
+          to: phone.replace('+', ''),
+          from: 'Zelo',
+          text: `Your Zelo verification code is ${otp}`
+        });
+      } catch (smsError) {
+        console.error('Vonage SMS send failed:', smsError.message);
+      }
+      console.log(`📱 OTP for ${phone}: ${otp}`); // kept for backup/debugging
 
     res.json({ success: true, message: 'OTP sent successfully', expiresIn: 300 });
   } catch (error) {
