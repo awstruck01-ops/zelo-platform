@@ -17,6 +17,7 @@ export default function Overview() {
   // Seller pending delete confirmation (holds the seller object, or null)
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [suspendingId, setSuspendingId] = useState(null);
 
   const loadSellers = () => {
     api
@@ -50,6 +51,21 @@ export default function Overview() {
       setError(err.response?.data?.error || 'Failed to delete seller');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleToggleSuspend = async (seller) => {
+    const nextStatus = seller.account_status === 'suspended' ? 'active' : 'suspended';
+    setSuspendingId(seller.id);
+    try {
+      await api.patch(`/admin/users/${seller.user_id}/status`, { status: nextStatus });
+      setSellers((prev) =>
+        prev.map((s) => (s.id === seller.id ? { ...s, account_status: nextStatus } : s))
+      );
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update seller status');
+    } finally {
+      setSuspendingId(null);
     }
   };
 
@@ -96,9 +112,25 @@ export default function Overview() {
                     <span className={`pill ${s.verification_status === 'approved' ? 'approved' : 'pending'}`}>
                       {s.verification_status}
                     </span>
+                    {s.account_status === 'suspended' && (
+                      <span className="pill" style={{ marginLeft: 6, background: '#7a2020', color: '#fff' }}>
+                        Suspended
+                      </span>
+                    )}
                   </td>
                   <td>{new Date(s.created_at).toLocaleDateString()}</td>
-                  <td>
+                  <td style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => handleToggleSuspend(s)}
+                      disabled={suspendingId === s.id}
+                    >
+                      {suspendingId === s.id
+                        ? 'Updating…'
+                        : s.account_status === 'suspended'
+                        ? 'Reactivate'
+                        : 'Suspend'}
+                    </button>
                     <button className="btn-danger" onClick={() => setConfirmDelete(s)}>
                       Delete
                     </button>
@@ -202,14 +234,39 @@ export default function Overview() {
       />
 
       {confirmDelete && (
-        <div className="modal-overlay" onClick={() => !deleting && setConfirmDelete(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete seller?</h3>
+        <div
+          onClick={() => !deleting && setConfirmDelete(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#111',
+              border: '1px solid #333',
+              borderRadius: 10,
+              padding: 24,
+              maxWidth: 400,
+              width: '90%',
+              color: '#fff',
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>Delete seller?</h3>
             <p>
               Are you sure you want to delete <strong>{confirmDelete.business_name}</strong>?
               This action cannot be undone.
             </p>
-            <div className="modal-actions">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
               <button
                 className="btn-secondary"
                 onClick={() => setConfirmDelete(null)}
