@@ -19,7 +19,13 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.zelodelivery.zelomobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,8 +36,13 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Zelo uses your location to find nearby sellers, set your delivery address, and match drivers to nearby orders."
         }
-      ]
-    ]
+      ],
+      "expo-video"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "22236002-baa2-462c-8e03-8803f7fa7f94"
+      }
+    }
   }
 }
-
