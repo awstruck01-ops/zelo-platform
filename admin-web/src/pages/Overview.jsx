@@ -36,8 +36,8 @@ export default function Overview() {
     loadSellers();
   }, []);
 
-  const restaurants = sellers.filter((s) => s.business_type === 'restaurant');
-  const stores = sellers.filter((s) => s.business_type === 'store');
+  const restaurants = sellers.filter((s) => s.category === 'restaurant');
+  const stores = sellers.filter((s) => s.category === 'store');
 
   const handleDeleteConfirmed = async () => {
     if (!confirmDelete) return;
@@ -80,9 +80,9 @@ export default function Overview() {
               {items.map((s) => (
                 <tr key={s.id}>
                   <td>
-                    {s.photo_url ? (
+                    {s.image_url && !s.image_url.match(/\.(mp4|mov|webm)$/i) ? (
                       <img
-                        src={s.photo_url}
+                        src={s.image_url}
                         alt={s.business_name}
                         style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }}
                       />
