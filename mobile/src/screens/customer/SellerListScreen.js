@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image } from 'react-native';
+import { Video, ResizeMode } from 'expo-av';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+
+const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 
 export default function SellerListScreen({ navigation }) {
   const { logout } = useAuth();
@@ -10,22 +13,17 @@ export default function SellerListScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-
   // Austin, TX coordinates as a reasonable default customer location for browsing
   const CUSTOMER_LAT = 30.2672;
   const CUSTOMER_LNG = -97.7431;
-
   const load = useCallback(() => {
     api.get('/sellers', { params: { lat: CUSTOMER_LAT, lng: CUSTOMER_LNG } })
       .then((res) => setSellers(res.data.data))
       .catch((err) => setError(err.response?.data?.error || 'Failed to load sellers'))
       .finally(() => { setLoading(false); setRefreshing(false); });
   }, []);
-
   useEffect(() => { load(); }, [load]);
-
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -34,9 +32,7 @@ export default function SellerListScreen({ navigation }) {
           <Text style={{ color: colors.live }}>My orders</Text>
         </TouchableOpacity>
       </View>
-
       {error ? <Text style={styles.error}>{error}</Text> : null}
-
       <FlatList
         data={sellers}
         keyExtractor={(s) => s.id}
@@ -46,7 +42,18 @@ export default function SellerListScreen({ navigation }) {
        renderItem={({ item }) => (
          <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
   {item.image_url && (
-    <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+    isVideoUrl(item.image_url) ? (
+      <Video
+        source={{ uri: item.image_url }}
+        style={styles.cardImage}
+        resizeMode={ResizeMode.COVER}
+        isLooping
+        isMuted
+        shouldPlay
+      />
+    ) : (
+      <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+    )
   )}
   <View style={{ flex: 1 }}>
     <Text style={styles.cardTitle}>{item.business_name}</Text>
@@ -59,14 +66,12 @@ export default function SellerListScreen({ navigation }) {
 </TouchableOpacity>
         )}
       />
-
       <TouchableOpacity style={styles.logout} onPress={logout}>
         <Text style={{ color: colors.textDim }}>Sign out</Text>
       </TouchableOpacity>
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 60 },
