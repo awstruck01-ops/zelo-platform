@@ -102,6 +102,15 @@ export default function Overview() {
                         alt={s.business_name}
                         style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }}
                       />
+                    ) : s.image_url ? (
+                      <video
+                        src={s.image_url}
+                        style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }}
+                        muted
+                        autoPlay
+                        loop
+                        playsInline
+                      />
                     ) : (
                       <span className="mono">—</span>
                     )}
