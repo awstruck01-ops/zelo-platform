@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { Video, ResizeMode } from 'expo-av';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useCart } from '../../context/CartContext';
 
 const formatUSD = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 
 export default function SellerDetailScreen({ route, navigation }) {
   const { sellerId } = route.params;
@@ -12,14 +14,12 @@ export default function SellerDetailScreen({ route, navigation }) {
   const [seller, setSeller] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     api.get(`/sellers/${sellerId}`)
       .then((res) => setSeller(res.data.data))
       .catch((err) => setError(err.response?.data?.error || 'Failed to load storefront'))
       .finally(() => setLoading(false));
   }, [sellerId]);
-
   useEffect(() => {
     navigation.setOptions({
       headerRight: () =>
@@ -30,15 +30,25 @@ export default function SellerDetailScreen({ route, navigation }) {
         ) : null,
     });
   }, [items, cartSellerId, sellerId, navigation]);
-
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
   if (error) return <View style={styles.container}><Text style={styles.error}>{error}</Text></View>;
-
   return (
     <View style={styles.container}>
     <View style={{ padding: 16 }}>
   {seller.image_url && (
-    <Image source={{ uri: seller.image_url }} style={styles.storefrontImage} />
+    isVideoUrl(seller.image_url) ? (
+      <Video
+        source={{ uri: seller.image_url }}
+        style={styles.storefrontImage}
+        resizeMode={ResizeMode.COVER}
+        isLooping
+        isMuted
+        shouldPlay
+        useNativeControls={false}
+      />
+    ) : (
+      <Image source={{ uri: seller.image_url }} style={styles.storefrontImage} />
+    )
   )}
   <Text style={styles.title}>{seller.business_name}</Text>
   <Text style={styles.sub}>{seller.address}</Text>
@@ -50,7 +60,19 @@ export default function SellerDetailScreen({ route, navigation }) {
        renderItem={({ item }) => (
          <View style={styles.itemCard}>
   {item.images && item.images.length > 0 && (
-    <Image source={{ uri: item.images[0] }} style={styles.itemImage} />
+    isVideoUrl(item.images[0]) ? (
+      <Video
+        source={{ uri: item.images[0] }}
+        style={styles.itemImage}
+        resizeMode={ResizeMode.COVER}
+        isLooping
+        isMuted
+        shouldPlay
+        useNativeControls={false}
+      />
+    ) : (
+      <Image source={{ uri: item.images[0] }} style={styles.itemImage} />
+    )
   )}
   <View style={{ flex: 1 }}>
     <Text style={styles.itemName}>{item.name}</Text>
@@ -66,7 +88,6 @@ export default function SellerDetailScreen({ route, navigation }) {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   title: { fontSize: 22, fontWeight: '700', color: colors.text },
