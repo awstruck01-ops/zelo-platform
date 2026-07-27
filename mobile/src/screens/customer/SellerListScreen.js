@@ -1,11 +1,26 @@
 import { useEffect, useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
 const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
+
+function MediaVideo({ uri, style }) {
+  const player = useVideoPlayer(uri, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+  return <VideoView player={player} style={style} contentFit="cover" nativeControls={false} />;
+}
+
+function MediaThumbnail({ uri, style }) {
+  if (!uri) return null;
+  if (isVideoUrl(uri)) return <MediaVideo uri={uri} style={style} />;
+  return <Image source={{ uri }} style={style} />;
+}
 
 export default function SellerListScreen({ navigation }) {
   const { logout } = useAuth();
@@ -41,20 +56,7 @@ export default function SellerListScreen({ navigation }) {
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>No sellers found nearby.</Text>}
        renderItem={({ item }) => (
          <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
-  {item.image_url && (
-    isVideoUrl(item.image_url) ? (
-      <Video
-        source={{ uri: item.image_url }}
-        style={styles.cardImage}
-        resizeMode={ResizeMode.COVER}
-        isLooping
-        isMuted
-        shouldPlay
-      />
-    ) : (
-      <Image source={{ uri: item.image_url }} style={styles.cardImage} />
-    )
-  )}
+  <MediaThumbnail uri={item.image_url} style={styles.cardImage} />
   <View style={{ flex: 1 }}>
     <Text style={styles.cardTitle}>{item.business_name}</Text>
     <Text style={styles.cardSub}>{item.category} · {item.item_count} item(s)</Text>
