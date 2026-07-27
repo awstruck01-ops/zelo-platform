@@ -140,7 +140,7 @@ router.get('/verifications/pending', async (req, res, next) => {
 router.get('/sellers', async (req, res, next) => {
   try {
     const sellers = await pool.query(
-      `SELECT s.*, u.phone, u.email FROM sellers s JOIN users u ON u.id = s.user_id
+      `SELECT s.*, u.phone, u.email, u.status as account_status FROM sellers s JOIN users u ON u.id = s.user_id
        ORDER BY s.created_at DESC`
     );
     res.json({ success: true, data: sellers.rows });
