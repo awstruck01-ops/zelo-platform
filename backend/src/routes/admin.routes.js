@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../config/db');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { createConnectAccount, createOnboardingLink } = require('../utils/stripe_util');
 
 const router = express.Router();
 
@@ -181,13 +182,41 @@ router.patch('/sellers/:id/verify', async (req, res, next) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Seller not found' });
 
+    let onboardingUrl = null;
+    if (status === 'approved') {
+      try {
+        const seller = result.rows[0];
+        let stripeAccountId = seller.stripe_connect_account_id;
+        if (!stripeAccountId) {
+          stripeAccountId = await createConnectAccount({
+            email: seller.email,
+            type: 'seller',
+            entityId: seller.id,
+          });
+          await pool.query('UPDATE sellers SET stripe_connect_account_id = $1 WHERE id = $2', [
+            stripeAccountId,
+            seller.id,
+          ]);
+        }
+        onboardingUrl = await createOnboardingLink(
+          stripeAccountId,
+          `${process.env.SELLER_WEB_URL}/stripe-refresh`,
+          `${process.env.SELLER_WEB_URL}/stripe-complete`
+        );
+      } catch (stripeError) {
+        // Don't fail the approval itself if Stripe setup has an issue —
+        // the seller can retry onboarding later via a dedicated endpoint.
+        console.error('Stripe Connect account creation failed:', stripeError);
+      }
+    }
+
     await pool.query(
       `INSERT INTO audit_log (actor_user_id, action, target_type, target_id, details)
        VALUES ($1, 'seller_verification', 'seller', $2, $3)`,
       [req.user.id, id, JSON.stringify({ status })]
     );
 
-    res.json({ success: true, data: result.rows[0] });
+    res.json({ success: true, data: result.rows[0], stripe_onboarding_url: onboardingUrl });
   } catch (error) {
     next(error);
   }
@@ -208,13 +237,41 @@ router.patch('/drivers/:id/verify', async (req, res, next) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
 
+    let onboardingUrl = null;
+    if (status === 'approved') {
+      try {
+        const driver = result.rows[0];
+        let stripeAccountId = driver.stripe_connect_account_id;
+        if (!stripeAccountId) {
+          stripeAccountId = await createConnectAccount({
+            email: driver.email,
+            type: 'driver',
+            entityId: driver.id,
+          });
+          await pool.query('UPDATE driver_profiles SET stripe_connect_account_id = $1 WHERE id = $2', [
+            stripeAccountId,
+            driver.id,
+          ]);
+        }
+        onboardingUrl = await createOnboardingLink(
+          stripeAccountId,
+          `${process.env.MOBILE_APP_URL}/stripe-refresh`,
+          `${process.env.MOBILE_APP_URL}/stripe-complete`
+        );
+        // TODO: send the driver their welcome email here, including onboardingUrl
+        // so they can immediately add their bank account/card.
+      } catch (stripeError) {
+        console.error('Stripe Connect account creation failed:', stripeError);
+      }
+    }
+
     await pool.query(
       `INSERT INTO audit_log (actor_user_id, action, target_type, target_id, details)
        VALUES ($1, 'driver_verification', 'driver', $2, $3)`,
       [req.user.id, id, JSON.stringify({ status })]
     );
 
-    res.json({ success: true, data: result.rows[0] });
+    res.json({ success: true, data: result.rows[0], stripe_onboarding_url: onboardingUrl });
   } catch (error) {
     next(error);
   }
