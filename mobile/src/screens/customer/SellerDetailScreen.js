@@ -1,12 +1,27 @@
 import { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useCart } from '../../context/CartContext';
 
 const formatUSD = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
+
+function MediaVideo({ uri, style }) {
+  const player = useVideoPlayer(uri, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+  return <VideoView player={player} style={style} contentFit="cover" nativeControls={false} />;
+}
+
+function MediaThumbnail({ uri, style }) {
+  if (!uri) return null;
+  if (isVideoUrl(uri)) return <MediaVideo uri={uri} style={style} />;
+  return <Image source={{ uri }} style={style} />;
+}
 
 export default function SellerDetailScreen({ route, navigation }) {
   const { sellerId } = route.params;
@@ -35,21 +50,7 @@ export default function SellerDetailScreen({ route, navigation }) {
   return (
     <View style={styles.container}>
     <View style={{ padding: 16 }}>
-  {seller.image_url && (
-    isVideoUrl(seller.image_url) ? (
-      <Video
-        source={{ uri: seller.image_url }}
-        style={styles.storefrontImage}
-        resizeMode={ResizeMode.COVER}
-        isLooping
-        isMuted
-        shouldPlay
-        useNativeControls={false}
-      />
-    ) : (
-      <Image source={{ uri: seller.image_url }} style={styles.storefrontImage} />
-    )
-  )}
+  <MediaThumbnail uri={seller.image_url} style={styles.storefrontImage} />
   <Text style={styles.title}>{seller.business_name}</Text>
   <Text style={styles.sub}>{seller.address}</Text>
 </View>
@@ -60,19 +61,7 @@ export default function SellerDetailScreen({ route, navigation }) {
        renderItem={({ item }) => (
          <View style={styles.itemCard}>
   {item.images && item.images.length > 0 && (
-    isVideoUrl(item.images[0]) ? (
-      <Video
-        source={{ uri: item.images[0] }}
-        style={styles.itemImage}
-        resizeMode={ResizeMode.COVER}
-        isLooping
-        isMuted
-        shouldPlay
-        useNativeControls={false}
-      />
-    ) : (
-      <Image source={{ uri: item.images[0] }} style={styles.itemImage} />
-    )
+    <MediaThumbnail uri={item.images[0]} style={styles.itemImage} />
   )}
   <View style={{ flex: 1 }}>
     <Text style={styles.itemName}>{item.name}</Text>
