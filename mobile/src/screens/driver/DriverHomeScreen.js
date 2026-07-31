@@ -8,7 +8,7 @@ import { getCurrentCoords } from '../../utils/location';
 const LOCATION_REFRESH_MS = 20000; // push a fresh GPS fix to the backend every 20s while online
 
 export default function DriverHomeScreen({ navigation }) {
-  const { profile, reloadProfile, logout } = useAuth();
+  const { profile, reloadProfile, logout, setAppMode } = useAuth();
   const [isOnline, setIsOnline] = useState(profile?.is_online || false);
   const [orders, setOrders] = useState([]);
   const [error, setError] = useState('');
@@ -163,9 +163,14 @@ export default function DriverHomeScreen({ navigation }) {
         />
       )}
 
-      <TouchableOpacity onPress={logout} style={{ padding: 16, alignItems: 'center' }}>
-        <Text style={{ color: colors.textDim }}>Sign out</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, padding: 16 }}>
+        <TouchableOpacity onPress={() => setAppMode(null)}>
+          <Text style={{ color: colors.live }}>Switch mode</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={logout}>
+          <Text style={{ color: colors.textDim }}>Sign out</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
