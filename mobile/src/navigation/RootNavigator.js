@@ -13,6 +13,10 @@ import OrderTrackingScreen from '../screens/customer/OrderTrackingScreen';
 import OrderHistoryScreen from '../screens/customer/OrderHistoryScreen';
 import DriverHomeScreen from '../screens/driver/DriverHomeScreen';
 import DriverOrderScreen from '../screens/driver/DriverOrderScreen';
+import TaxFormScreen from '../screens/driver/TaxFormScreen';
+import InboxScreen from '../screens/driver/InboxScreen';
+import ChatListScreen from '../screens/driver/ChatListScreen';
+import ChatScreen from '../screens/driver/ChatScreen';
 const Stack = createNativeStackNavigator();
 const navTheme = {
   ...DefaultTheme,
@@ -67,6 +71,10 @@ function DriverStack() {
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Zelo Driver', headerShown: false }} />
       <Stack.Screen name="DriverOrder" component={DriverOrderScreen} options={{ title: 'Active delivery' }} />
+      <Stack.Screen name="TaxForm" component={TaxFormScreen} options={{ title: 'Tax information' }} />
+      <Stack.Screen name="Inbox" component={InboxScreen} options={{ title: 'Inbox' }} />
+      <Stack.Screen name="ChatList" component={ChatListScreen} options={{ title: 'Messages' }} />
+      <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
     </Stack.Navigator>
   );
 }
