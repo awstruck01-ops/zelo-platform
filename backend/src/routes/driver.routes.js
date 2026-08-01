@@ -252,4 +252,164 @@ router.get('/me/earnings', authMiddleware, roleMiddleware(['driver']), async (re
   }
 });
 
+// ---------------------------------------------------------------------------
+// Tax form (current version + submission)
+// ---------------------------------------------------------------------------
+
+// Get the currently-active tax form version, plus this driver's most recent
+// submission (if any) so the app can show "you're up to date" vs "please resubmit".
+router.get('/me/tax-form/current', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+
+    const versionResult = await pool.query('SELECT * FROM tax_form_versions WHERE is_current = TRUE LIMIT 1');
+    const currentVersion = versionResult.rows[0] || null;
+
+    let latestSubmission = null;
+    if (currentVersion) {
+      const subResult = await pool.query(
+        `SELECT * FROM driver_tax_submissions
+         WHERE driver_id = $1 AND tax_form_version_id = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [driver.id, currentVersion.id]
+      );
+      latestSubmission = subResult.rows[0] || null;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        current_version: currentVersion,
+        submission_for_current_version: latestSubmission,
+        needs_submission: !!currentVersion && !latestSubmission,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Submit (or resubmit) the tax form against the current version
+router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+
+    const {
+      legal_name, business_name, tax_classification,
+      address, city, state, zip, tax_id, signature_name,
+    } = req.body;
+
+    if (!legal_name || !tax_classification || !address || !city || !state || !zip || !tax_id || !signature_name) {
+      return res.status(400).json({ error: 'legal_name, tax_classification, address, city, state, zip, tax_id, and signature_name are required' });
+    }
+
+    const versionResult = await pool.query('SELECT * FROM tax_form_versions WHERE is_current = TRUE LIMIT 1');
+    if (versionResult.rows.length === 0) {
+      return res.status(409).json({ error: 'No tax form version is currently published' });
+    }
+    const currentVersion = versionResult.rows[0];
+
+    const result = await pool.query(
+      `INSERT INTO driver_tax_submissions (
+        driver_id, tax_form_version_id, legal_name, business_name, tax_classification,
+        address, city, state, zip, tax_id, signature_name
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [driver.id, currentVersion.id, legal_name, business_name || null, tax_classification,
+        address, city, state, zip, tax_id, signature_name]
+    );
+
+    // Keep the summary fields on driver_profiles in sync for quick access elsewhere (admin views, etc.)
+    await pool.query(
+      `UPDATE driver_profiles SET w9_legal_name = $1, w9_tax_id = $2, w9_completed_at = NOW() WHERE id = $3`,
+      [legal_name, tax_id, driver.id]
+    );
+
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Inbox
+// ---------------------------------------------------------------------------
+
+// List inbox messages for this driver: their own targeted messages plus any
+// broadcasts (driver_id IS NULL). Also returns unread_count for the badge.
+router.get('/me/inbox', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+
+    const messages = await pool.query(
+      `SELECT * FROM driver_inbox_messages
+       WHERE driver_id = $1 OR driver_id IS NULL
+       ORDER BY created_at DESC LIMIT 100`,
+      [driver.id]
+    );
+
+    const unreadResult = await pool.query(
+      `SELECT COUNT(*) FROM driver_inbox_messages
+       WHERE (driver_id = $1 OR driver_id IS NULL) AND is_read = FALSE`,
+      [driver.id]
+    );
+
+    res.json({
+      success: true,
+      data: messages.rows,
+      unread_count: parseInt(unreadResult.rows[0].count, 10),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Mark a single inbox message as read. Broadcast messages (driver_id NULL)
+// can't be UPDATEd per-driver directly since the row is shared — for those we
+// track read state per-driver by cloning a read copy scoped to this driver.
+router.patch('/me/inbox/:id/read', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+    const { id } = req.params;
+
+    const msgResult = await pool.query('SELECT * FROM driver_inbox_messages WHERE id = $1', [id]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
+    const message = msgResult.rows[0];
+
+    if (message.driver_id !== null && message.driver_id !== driver.id) {
+      return res.status(403).json({ error: 'Not authorized for this message' });
+    }
+
+    // Targeted message: just mark it read directly.
+    if (message.driver_id === driver.id) {
+      const result = await pool.query(
+        'UPDATE driver_inbox_messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 RETURNING *',
+        [id]
+      );
+      return res.json({ success: true, data: result.rows[0] });
+    }
+
+    // Broadcast message: mark this driver's copy read without mutating the
+    // shared row for everyone else, by cloning it into a per-driver read row.
+    const existing = await pool.query(
+      'SELECT id FROM driver_inbox_messages WHERE driver_id = $1 AND type = $2 AND title = $3 AND created_at = $4',
+      [driver.id, message.type, message.title, message.created_at]
+    );
+    if (existing.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO driver_inbox_messages (driver_id, type, title, body, related_tax_form_version_id, is_read, read_at, created_by, created_at)
+         VALUES ($1,$2,$3,$4,$5,TRUE,NOW(),$6,$7)`,
+        [driver.id, message.type, message.title, message.body, message.related_tax_form_version_id, message.created_by, message.created_at]
+      );
+    }
+
+    res.json({ success: true, message: 'Marked as read' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

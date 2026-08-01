@@ -8,7 +8,7 @@ import { getCurrentCoords } from '../../utils/location';
 const LOCATION_REFRESH_MS = 20000; // push a fresh GPS fix to the backend every 20s while online
 
 export default function DriverHomeScreen({ navigation }) {
-  const { profile, reloadProfile, logout } = useAuth();
+  const { profile, reloadProfile, logout, setAppMode } = useAuth();
   const [isOnline, setIsOnline] = useState(profile?.is_online || false);
   const [orders, setOrders] = useState([]);
   const [error, setError] = useState('');
@@ -132,6 +132,18 @@ export default function DriverHomeScreen({ navigation }) {
         </View>
       </View>
 
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 20, paddingBottom: 12 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('ChatList')}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Messages</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Inbox')}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Inbox</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('TaxForm')}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Tax info</Text>
+        </TouchableOpacity>
+      </View>
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
 
@@ -163,9 +175,14 @@ export default function DriverHomeScreen({ navigation }) {
         />
       )}
 
-      <TouchableOpacity onPress={logout} style={{ padding: 16, alignItems: 'center' }}>
-        <Text style={{ color: colors.textDim }}>Sign out</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, padding: 16 }}>
+        <TouchableOpacity onPress={() => setAppMode(null)}>
+          <Text style={{ color: colors.live }}>Switch mode</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={logout}>
+          <Text style={{ color: colors.textDim }}>Sign out</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }

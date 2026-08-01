@@ -1,14 +1,16 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../api/client';
-
 const AuthContext = createContext(null);
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-
+  // appMode is only meaningful for driver accounts: null = show the "Shopping
+  // or driving?" chooser, 'driving' = driver screens, 'shopping' = customer
+  // screens. Drivers can switch back and forth via setAppMode(null) from
+  // wherever they are (e.g. a "Switch mode" button).
+  const [appMode, setAppMode] = useState(null);
   const loadProfile = useCallback(async () => {
     try {
       const res = await api.get('/auth/profile');
@@ -19,7 +21,6 @@ export function AuthProvider({ children }) {
       setProfile(null);
     }
   }, []);
-
   useEffect(() => {
     (async () => {
       const token = await AsyncStorage.getItem('zelo_token');
@@ -27,32 +28,30 @@ export function AuthProvider({ children }) {
       setLoading(false);
     })();
   }, [loadProfile]);
-
   const login = async (phone, password) => {
     const res = await api.post('/auth/login', { phone, password });
     await AsyncStorage.setItem('zelo_token', res.data.data.token);
     setUser(res.data.data.user);
+    setAppMode(null);
     await loadProfile();
   };
-
   const register = async (payload) => {
     const res = await api.post('/auth/register', payload);
     await AsyncStorage.setItem('zelo_token', res.data.data.token);
     setUser(res.data.data.user);
+    setAppMode(null);
     await loadProfile();
   };
-
   const logout = async () => {
     await AsyncStorage.removeItem('zelo_token');
     setUser(null);
     setProfile(null);
+    setAppMode(null);
   };
-
   return (
-    <AuthContext.Provider value={{ user, profile, loading, login, register, logout, reloadProfile: loadProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, login, register, logout, reloadProfile: loadProfile, appMode, setAppMode }}>
       {children}
     </AuthContext.Provider>
   );
 }
-
 export const useAuth = () => useContext(AuthContext);

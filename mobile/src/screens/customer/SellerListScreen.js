@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import * as Location from 'expo-location';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -23,22 +24,48 @@ function MediaThumbnail({ uri, style }) {
 }
 
 export default function SellerListScreen({ navigation }) {
-  const { logout } = useAuth();
+  const { logout, user, setAppMode } = useAuth();
   const [sellers, setSellers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  // Austin, TX coordinates as a reasonable default customer location for browsing
-  const CUSTOMER_LAT = 30.2672;
-  const CUSTOMER_LNG = -97.7431;
+  const [coords, setCoords] = useState(null);
+  const [locationError, setLocationError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationError('Location permission is needed to find sellers near you');
+        setLoading(false);
+        return;
+      }
+      try {
+        const position = await Location.getCurrentPositionAsync({});
+        setCoords({ lat: position.coords.latitude, lng: position.coords.longitude });
+      } catch (err) {
+        setLocationError('Could not determine your location');
+        setLoading(false);
+      }
+    })();
+  }, []);
+
   const load = useCallback(() => {
-    api.get('/sellers', { params: { lat: CUSTOMER_LAT, lng: CUSTOMER_LNG } })
+    if (!coords) return;
+    api.get('/sellers', { params: { lat: coords.lat, lng: coords.lng } })
       .then((res) => setSellers(res.data.data))
       .catch((err) => setError(err.response?.data?.error || 'Failed to load sellers'))
       .finally(() => { setLoading(false); setRefreshing(false); });
-  }, []);
+  }, [coords]);
   useEffect(() => { load(); }, [load]);
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
+  if (locationError) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ color: colors.danger, padding: 20, paddingTop: 60, textAlign: 'center' }}>{locationError}</Text>
+      </View>
+    );
+  }
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -68,9 +95,16 @@ export default function SellerListScreen({ navigation }) {
 </TouchableOpacity>
         )}
       />
-      <TouchableOpacity style={styles.logout} onPress={logout}>
-        <Text style={{ color: colors.textDim }}>Sign out</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, padding: 16 }}>
+        {user?.role === 'driver' && (
+          <TouchableOpacity onPress={() => setAppMode(null)}>
+            <Text style={{ color: colors.live }}>Switch mode</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={logout}>
+          <Text style={{ color: colors.textDim }}>Sign out</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }

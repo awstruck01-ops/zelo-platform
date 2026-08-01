@@ -1,6 +1,6 @@
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View, Image, Text } from 'react-native';
+import { ActivityIndicator, View, Image, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { CartProvider } from '../context/CartContext';
@@ -14,6 +14,10 @@ import OrderHistoryScreen from '../screens/customer/OrderHistoryScreen';
 import DriverHomeScreen from '../screens/driver/DriverHomeScreen';
 import DriverOrderScreen from '../screens/driver/DriverOrderScreen';
 import DriverMapScreen from '../screens/driver/DriverMapScreen';
+import TaxFormScreen from '../screens/driver/TaxFormScreen';
+import InboxScreen from '../screens/driver/InboxScreen';
+import ChatListScreen from '../screens/driver/ChatListScreen';
+import ChatScreen from '../screens/driver/ChatScreen';
 const Stack = createNativeStackNavigator();
 const navTheme = {
   ...DefaultTheme,
@@ -68,11 +72,44 @@ function DriverStack() {
       <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Zelo Driver', headerShown: false }} />
       <Stack.Screen name="DriverOrder" component={DriverOrderScreen} options={{ title: 'Active delivery' }} />
       <Stack.Screen name="DriverMap" component={DriverMapScreen} options={{ title: 'Navigate', headerShown: false }} />
+      <Stack.Screen name="TaxForm" component={TaxFormScreen} options={{ title: 'Tax information' }} />
+      <Stack.Screen name="Inbox" component={InboxScreen} options={{ title: 'Inbox' }} />
+      <Stack.Screen name="ChatList" component={ChatListScreen} options={{ title: 'Messages' }} />
+      <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
     </Stack.Navigator>
   );
 }
+
+// Shown once per session to driver accounts, since a driver can also shop as
+// a customer on Zelo (the backend doesn't restrict order placement by role).
+function ModeChooser() {
+  const { setAppMode, logout } = useAuth();
+  return (
+    <View style={chooserStyles.container}>
+      <Image source={require('../../assets/icon.png')} style={{ width: 64, height: 64, borderRadius: 16, marginBottom: 20 }} />
+      <Text style={chooserStyles.title}>What are you doing today?</Text>
+      <TouchableOpacity style={chooserStyles.optionButton} onPress={() => setAppMode('driving')}>
+        <Text style={chooserStyles.optionButtonText}>Driving</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[chooserStyles.optionButton, chooserStyles.optionButtonSecondary]} onPress={() => setAppMode('shopping')}>
+        <Text style={[chooserStyles.optionButtonText, { color: colors.live }]}>Shopping</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={logout} style={{ marginTop: 30 }}>
+        <Text style={{ color: colors.textDim }}>Sign out</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+const chooserStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center', padding: 28 },
+  title: { fontSize: 22, fontWeight: '700', color: colors.text, marginBottom: 28 },
+  optionButton: { backgroundColor: colors.live, borderRadius: 10, paddingVertical: 16, paddingHorizontal: 48, marginBottom: 12, width: '100%', alignItems: 'center' },
+  optionButtonSecondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.live },
+  optionButtonText: { color: colors.liveText, fontWeight: '700', fontSize: 16 },
+});
+
 export default function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading, appMode } = useAuth();
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center' }}>
@@ -80,9 +117,18 @@ export default function RootNavigator() {
       </View>
     );
   }
-  return (
-    <NavigationContainer theme={navTheme}>
-      {!user ? <AuthStack /> : user.role === 'driver' ? <DriverStack /> : <CustomerStack />}
-    </NavigationContainer>
-  );
+
+  let content;
+  if (!user) {
+    content = <AuthStack />;
+  } else if (user.role === 'driver' && !appMode) {
+    content = <ModeChooser />;
+  } else if (user.role === 'driver' && appMode === 'driving') {
+    content = <DriverStack />;
+  } else {
+    // covers: non-driver accounts, and drivers who chose 'shopping'
+    content = <CustomerStack />;
+  }
+
+  return <NavigationContainer theme={navTheme}>{content}</NavigationContainer>;
 }

@@ -304,4 +304,105 @@ router.patch('/users/:id/status', async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Tax form versioning + driver inbox
+// ---------------------------------------------------------------------------
+
+// Publish a new tax form version. Marks it current (unmarking the previous
+// one) and broadcasts an inbox message to every driver so they see it and
+// can re-submit. This does NOT force existing submissions to be invalid —
+// it's up to policy/ops whether drivers must resubmit before their next payout.
+router.post('/tax-forms', async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { version_label, notes } = req.body;
+    if (!version_label) {
+      return res.status(400).json({ error: 'version_label is required' });
+    }
+
+    await client.query('BEGIN');
+
+    await client.query('UPDATE tax_form_versions SET is_current = FALSE WHERE is_current = TRUE');
+
+    const versionResult = await client.query(
+      `INSERT INTO tax_form_versions (version_label, notes, is_current, created_by)
+       VALUES ($1, $2, TRUE, $3) RETURNING *`,
+      [version_label, notes || null, req.user.id]
+    );
+    const version = versionResult.rows[0];
+
+    // Broadcast to all drivers (driver_id NULL = broadcast; driver inbox
+    // route treats NULL-driver rows as visible to everyone).
+    await client.query(
+      `INSERT INTO driver_inbox_messages (driver_id, type, title, body, related_tax_form_version_id, created_by)
+       VALUES (NULL, 'tax_form_update', $1, $2, $3, $4)`,
+      [
+        `New tax form available: ${version_label}`,
+        notes || `A new version of the tax form (${version_label}) is now available. Please review and resubmit.`,
+        version.id,
+        req.user.id,
+      ]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ success: true, data: version });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+// List tax form versions (history)
+router.get('/tax-forms', async (req, res, next) => {
+  try {
+    const result = await pool.query('SELECT * FROM tax_form_versions ORDER BY created_at DESC');
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send an inbox message to one driver, or broadcast to all (omit driver_id).
+router.post('/inbox-messages', async (req, res, next) => {
+  try {
+    const { driver_id, title, body, type } = req.body;
+    if (!title || !body) {
+      return res.status(400).json({ error: 'title and body are required' });
+    }
+    const result = await pool.query(
+      `INSERT INTO driver_inbox_messages (driver_id, type, title, body, created_by)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [driver_id || null, type || 'announcement', title, body, req.user.id]
+    );
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// View all driver tax submissions (for compliance/ops review)
+router.get('/tax-submissions', async (req, res, next) => {
+  try {
+    const { driver_id } = req.query;
+    let query = `
+      SELECT ts.*, d.user_id, u.phone, u.email
+      FROM driver_tax_submissions ts
+      JOIN driver_profiles d ON d.id = ts.driver_id
+      JOIN users u ON u.id = d.user_id
+      WHERE 1=1`;
+    const params = [];
+    if (driver_id) {
+      params.push(driver_id);
+      query += ` AND ts.driver_id = $${params.length}`;
+    }
+    query += ' ORDER BY ts.created_at DESC';
+    const result = await pool.query(query, params);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;
