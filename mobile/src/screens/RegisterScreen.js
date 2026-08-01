@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Image, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
@@ -63,30 +63,16 @@ export default function RegisterScreen({ navigation }) {
     }
   };
 
-  // Shared picker+upload helper for license/insurance photos.
-  // NOTE: assumes an upload endpoint at POST /uploads that accepts multipart
-  // form data under field name "file" and returns { data: { url } }.
-  // Update the endpoint/field name here if your actual upload route differs.
-  const pickAndUpload = async (setUrl, setUploading) => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError('Photo library permission is required to upload documents');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-    });
-    if (result.canceled) return;
-
+  // Shared upload helper — takes an already-picked/captured asset and sends it
+  // to the backend, updating the relevant preview URL on success.
+  const uploadAsset = async (asset, setUrl, setUploading) => {
     setUploading(true);
     setError('');
     try {
-      const asset = result.assets[0];
       const formData = new FormData();
       formData.append('file', {
         uri: asset.uri,
-        name: asset.fileName || 'upload.jpg',
+        name: asset.fileName || `upload-${Date.now()}.jpg`,
         type: asset.mimeType || 'image/jpeg',
       });
       const res = await api.post('/uploads', formData, {
@@ -94,10 +80,66 @@ export default function RegisterScreen({ navigation }) {
       });
       setUrl(res.data.data.url);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to upload document');
+      setError(err.response?.data?.error || 'Failed to upload document. Please try again.');
     } finally {
       setUploading(false);
     }
+  };
+
+  // Camera-only capture for documents like the driver's license — opens the
+  // camera directly, no gallery option.
+  const captureDocument = async (setUrl, setUploading) => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setError('Camera permission is required to take this photo');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    await uploadAsset(result.assets[0], setUrl, setUploading);
+  };
+
+  // Lets the user choose between taking a new photo or picking an existing
+  // one from their gallery — used for proof of insurance.
+  const captureOrPickDocument = (setUrl, setUploading) => {
+    Alert.alert(
+      'Add photo',
+      'Take a new photo or choose one from your gallery',
+      [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const permission = await ImagePicker.requestCameraPermissionsAsync();
+            if (!permission.granted) {
+              setError('Camera permission is required to take this photo');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+            if (result.canceled) return;
+            await uploadAsset(result.assets[0], setUrl, setUploading);
+          },
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (!permission.granted) {
+              setError('Photo library permission is required to upload documents');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.8,
+            });
+            if (result.canceled) return;
+            await uploadAsset(result.assets[0], setUrl, setUploading);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   // Camera-only capture for the identity selfie — deliberately does NOT allow
@@ -114,26 +156,7 @@ export default function RegisterScreen({ navigation }) {
       quality: 0.8,
     });
     if (result.canceled) return;
-
-    setUploadingSelfie(true);
-    setError('');
-    try {
-      const asset = result.assets[0];
-      const formData = new FormData();
-      formData.append('file', {
-        uri: asset.uri,
-        name: 'selfie.jpg',
-        type: 'image/jpeg',
-      });
-      const res = await api.post('/uploads', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setSelfieUrl(res.data.data.url);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to upload photo');
-    } finally {
-      setUploadingSelfie(false);
-    }
+    await uploadAsset(result.assets[0], setSelfieUrl, setUploadingSelfie);
   };
 
   const driverFieldsComplete =
@@ -235,13 +258,13 @@ export default function RegisterScreen({ navigation }) {
           <Text style={styles.label}>Driver's license photo</Text>
           <TouchableOpacity
             style={styles.uploadButton}
-            onPress={() => pickAndUpload(setLicenseUrl, setUploadingLicense)}
+            onPress={() => captureDocument(setLicenseUrl, setUploadingLicense)}
             disabled={uploadingLicense}
           >
             {uploadingLicense ? (
               <ActivityIndicator color={colors.live} />
             ) : (
-              <Text style={{ color: colors.live }}>{licenseUrl ? 'Change photo' : 'Upload photo'}</Text>
+              <Text style={{ color: colors.live }}>{licenseUrl ? 'Retake photo' : 'Open camera'}</Text>
             )}
           </TouchableOpacity>
           {licenseUrl ? <Image source={{ uri: licenseUrl }} style={styles.preview} /> : null}
@@ -249,13 +272,13 @@ export default function RegisterScreen({ navigation }) {
           <Text style={styles.label}>Proof of insurance</Text>
           <TouchableOpacity
             style={styles.uploadButton}
-            onPress={() => pickAndUpload(setInsuranceUrl, setUploadingInsurance)}
+            onPress={() => captureOrPickDocument(setInsuranceUrl, setUploadingInsurance)}
             disabled={uploadingInsurance}
           >
             {uploadingInsurance ? (
               <ActivityIndicator color={colors.live} />
             ) : (
-              <Text style={{ color: colors.live }}>{insuranceUrl ? 'Change photo' : 'Upload photo'}</Text>
+              <Text style={{ color: colors.live }}>{insuranceUrl ? 'Change photo' : 'Add photo'}</Text>
             )}
           </TouchableOpacity>
           {insuranceUrl ? <Image source={{ uri: insuranceUrl }} style={styles.preview} /> : null}
