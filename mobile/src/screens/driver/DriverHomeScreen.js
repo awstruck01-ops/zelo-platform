@@ -132,6 +132,18 @@ export default function DriverHomeScreen({ navigation }) {
         </View>
       </View>
 
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 20, paddingBottom: 12 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('ChatList')}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Messages</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Inbox')}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Inbox</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('TaxForm')}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Tax info</Text>
+        </TouchableOpacity>
+      </View>
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
 
