@@ -25,7 +25,12 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "package": "com.zelodelivery.zelomobile"
+      "package": "com.zelodelivery.zelomobile",
+"config": {
+    "googleMaps": {
+      "apiKey": "AIzaSyD77HMg1Nyo_fjnkjKcg6k4D1--OpUQAOs"
+    }
+  }
     },
     "web": {
       "favicon": "./assets/favicon.png"

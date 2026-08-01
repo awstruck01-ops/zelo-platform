@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
@@ -11,10 +12,23 @@ const ROLES = [
 
 const VEHICLES = ['bicycle', 'scooter', 'motorcycle', 'car', 'truck'];
 
+const DRIVER_POLICY_TEXT = `By driving with Zelo, you agree to:
+
+• Maintain a valid driver's license and current vehicle insurance at all times
+• Follow all traffic laws and drive safely
+• Treat customers, sellers, and other drivers with respect
+• Complete deliveries as accepted, or reject promptly if unable
+• Take a photo confirming delivery at the customer's location
+• Report any accidents, incidents, or safety concerns immediately
+• Operate as an independent contractor responsible for your own taxes
+
+Zelo may suspend or terminate driver accounts for policy violations, safety concerns, or fraudulent activity.`;
+
 export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
   const [role, setRole] = useState('customer');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [dob, setDob] = useState(''); // YYYY-MM-DD
   const [vehicleType, setVehicleType] = useState('motorcycle');
@@ -22,6 +36,18 @@ export default function RegisterScreen({ navigation }) {
   const [otpSent, setOtpSent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Driver-only fields
+  const [licenseUrl, setLicenseUrl] = useState('');
+  const [insuranceUrl, setInsuranceUrl] = useState('');
+  const [selfieUrl, setSelfieUrl] = useState('');
+  const [uploadingLicense, setUploadingLicense] = useState(false);
+  const [uploadingInsurance, setUploadingInsurance] = useState(false);
+  const [uploadingSelfie, setUploadingSelfie] = useState(false);
+  const [w9LegalName, setW9LegalName] = useState('');
+  const [w9TaxId, setW9TaxId] = useState('');
+  const [agreedToPolicy, setAgreedToPolicy] = useState(false);
+  const [showPolicy, setShowPolicy] = useState(false);
 
   const sendOtp = async () => {
     setError('');
@@ -37,12 +63,101 @@ export default function RegisterScreen({ navigation }) {
     }
   };
 
+  // Shared picker+upload helper for license/insurance photos.
+  // NOTE: assumes an upload endpoint at POST /uploads that accepts multipart
+  // form data under field name "file" and returns { data: { url } }.
+  // Update the endpoint/field name here if your actual upload route differs.
+  const pickAndUpload = async (setUrl, setUploading) => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError('Photo library permission is required to upload documents');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+
+    setUploading(true);
+    setError('');
+    try {
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        name: asset.fileName || 'upload.jpg',
+        type: asset.mimeType || 'image/jpeg',
+      });
+      const res = await api.post('/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setUrl(res.data.data.url);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to upload document');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Camera-only capture for the identity selfie — deliberately does NOT allow
+  // picking from the gallery, since the whole point is a live photo taken
+  // right now, not an old/borrowed image.
+  const captureSelfie = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setError('Camera permission is required to complete your application');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      cameraType: ImagePicker.CameraType.front,
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+
+    setUploadingSelfie(true);
+    setError('');
+    try {
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        name: 'selfie.jpg',
+        type: 'image/jpeg',
+      });
+      const res = await api.post('/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setSelfieUrl(res.data.data.url);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to upload photo');
+    } finally {
+      setUploadingSelfie(false);
+    }
+  };
+
+  const driverFieldsComplete =
+    role !== 'driver' ||
+    (licenseUrl && insuranceUrl && selfieUrl && w9LegalName && w9TaxId && agreedToPolicy && email);
+
   const submit = async () => {
     setError('');
+    if (role === 'driver' && !driverFieldsComplete) {
+      setError('Please complete all driver requirements below before continuing');
+      return;
+    }
     setLoading(true);
     try {
-      const payload = { phone, otp, password, role, date_of_birth: dob };
-      if (role === 'driver') payload.vehicle_type = vehicleType;
+      const payload = { phone, otp, password, role, date_of_birth: dob, email: email || undefined };
+      if (role === 'driver') {
+        payload.vehicle_type = vehicleType;
+        payload.license_url = licenseUrl;
+        payload.insurance_doc_url = insuranceUrl;
+        payload.selfie_url = selfieUrl;
+        payload.w9_legal_name = w9LegalName;
+        payload.w9_tax_id = w9TaxId;
+        payload.agreed_to_policy = true;
+      }
       await register(payload);
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed');
@@ -91,6 +206,17 @@ export default function RegisterScreen({ navigation }) {
 
       {role === 'driver' && (
         <>
+          <Text style={styles.label}>Email (for approval + updates)</Text>
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            placeholder="you@example.com"
+            placeholderTextColor={colors.textDim}
+          />
+
           <Text style={styles.label}>Vehicle type</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {VEHICLES.map((v) => (
@@ -103,10 +229,99 @@ export default function RegisterScreen({ navigation }) {
               </TouchableOpacity>
             ))}
           </View>
+
+          <Text style={styles.sectionHeader}>Driver verification</Text>
+
+          <Text style={styles.label}>Driver's license photo</Text>
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={() => pickAndUpload(setLicenseUrl, setUploadingLicense)}
+            disabled={uploadingLicense}
+          >
+            {uploadingLicense ? (
+              <ActivityIndicator color={colors.live} />
+            ) : (
+              <Text style={{ color: colors.live }}>{licenseUrl ? 'Change photo' : 'Upload photo'}</Text>
+            )}
+          </TouchableOpacity>
+          {licenseUrl ? <Image source={{ uri: licenseUrl }} style={styles.preview} /> : null}
+
+          <Text style={styles.label}>Proof of insurance</Text>
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={() => pickAndUpload(setInsuranceUrl, setUploadingInsurance)}
+            disabled={uploadingInsurance}
+          >
+            {uploadingInsurance ? (
+              <ActivityIndicator color={colors.live} />
+            ) : (
+              <Text style={{ color: colors.live }}>{insuranceUrl ? 'Change photo' : 'Upload photo'}</Text>
+            )}
+          </TouchableOpacity>
+          {insuranceUrl ? <Image source={{ uri: insuranceUrl }} style={styles.preview} /> : null}
+
+          <Text style={styles.label}>Take a photo of yourself</Text>
+          <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 8 }}>
+            This confirms it's really you applying — camera only, no gallery uploads.
+          </Text>
+          <TouchableOpacity style={styles.uploadButton} onPress={captureSelfie} disabled={uploadingSelfie}>
+            {uploadingSelfie ? (
+              <ActivityIndicator color={colors.live} />
+            ) : (
+              <Text style={{ color: colors.live }}>{selfieUrl ? 'Retake photo' : 'Open camera'}</Text>
+            )}
+          </TouchableOpacity>
+          {selfieUrl ? <Image source={{ uri: selfieUrl }} style={styles.preview} /> : null}
+
+          <Text style={styles.sectionHeader}>Tax information (Form W-9)</Text>
+          <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 8 }}>
+            As an independent contractor, we need this to report your earnings to the IRS.
+          </Text>
+
+          <Text style={styles.label}>Legal name</Text>
+          <TextInput style={styles.input} value={w9LegalName} onChangeText={setW9LegalName} placeholderTextColor={colors.textDim} />
+
+          <Text style={styles.label}>SSN or EIN</Text>
+          <TextInput
+            style={styles.input}
+            value={w9TaxId}
+            onChangeText={setW9TaxId}
+            keyboardType="number-pad"
+            placeholder="XXX-XX-XXXX"
+            placeholderTextColor={colors.textDim}
+            secureTextEntry
+          />
+
+          <Text style={styles.sectionHeader}>Driver policy</Text>
+          <TouchableOpacity onPress={() => setShowPolicy(!showPolicy)}>
+            <Text style={{ color: colors.live, marginBottom: 8 }}>
+              {showPolicy ? 'Hide policy ▲' : 'Read driver policy ▼'}
+            </Text>
+          </TouchableOpacity>
+          {showPolicy && (
+            <View style={styles.policyBox}>
+              <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>{DRIVER_POLICY_TEXT}</Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}
+            onPress={() => setAgreedToPolicy(!agreedToPolicy)}
+          >
+            <View style={[styles.checkbox, agreedToPolicy && styles.checkboxChecked]}>
+              {agreedToPolicy ? <Text style={{ color: colors.liveText, fontSize: 12 }}>✓</Text> : null}
+            </View>
+            <Text style={{ color: colors.text, marginLeft: 10, flex: 1 }}>
+              I have read and agree to the driver policy and independent contractor terms
+            </Text>
+          </TouchableOpacity>
         </>
       )}
 
-      <TouchableOpacity style={styles.primaryButton} onPress={submit} disabled={loading || !otpSent}>
+      <TouchableOpacity
+        style={[styles.primaryButton, (loading || !otpSent || !driverFieldsComplete) && { opacity: 0.5 }]}
+        onPress={submit}
+        disabled={loading || !otpSent || !driverFieldsComplete}
+      >
         {loading ? <ActivityIndicator color={colors.liveText} /> : <Text style={styles.primaryButtonText}>Create account</Text>}
       </TouchableOpacity>
 
@@ -123,10 +338,25 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   title: { fontSize: 26, fontWeight: '700', color: colors.text, marginBottom: 20 },
   label: { color: colors.textDim, fontSize: 13, marginBottom: 6, marginTop: 14 },
+  sectionHeader: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 26, marginBottom: 4 },
   input: {
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     borderRadius: 10, padding: 14, color: colors.text, fontSize: 15,
   },
+  uploadButton: {
+    borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: 10,
+    padding: 14, alignItems: 'center', marginTop: 2,
+  },
+  preview: { width: '100%', height: 140, borderRadius: 10, marginTop: 10, backgroundColor: colors.border },
+  policyBox: {
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: 10, padding: 14, maxHeight: 220,
+  },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 5, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkboxChecked: { backgroundColor: colors.live, borderColor: colors.live },
   primaryButton: { backgroundColor: colors.live, borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 28 },
   primaryButtonText: { color: colors.liveText, fontWeight: '700', fontSize: 15 },
   error: { color: colors.danger, backgroundColor: colors.dangerDim, padding: 12, borderRadius: 8, marginBottom: 12 },

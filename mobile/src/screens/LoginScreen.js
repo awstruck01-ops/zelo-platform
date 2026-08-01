@@ -33,7 +33,7 @@ export default function LoginScreen({ navigation }) {
       <Text style={styles.label}>Phone number</Text>
       <TextInput
         style={styles.input}
-        placeholder="0801 234 5678"
+        placeholder="(555) 123-4567"placeholder="(555) 123-4567"
         placeholderTextColor={colors.textDim}
         value={phone}
         onChangeText={setPhone}

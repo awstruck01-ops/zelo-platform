@@ -4,39 +4,32 @@ import { ActivityIndicator, View, Image, Text } from 'react-native';
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { CartProvider } from '../context/CartContext';
-
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
-
 import SellerListScreen from '../screens/customer/SellerListScreen';
 import SellerDetailScreen from '../screens/customer/SellerDetailScreen';
 import CartScreen from '../screens/customer/CartScreen';
 import OrderTrackingScreen from '../screens/customer/OrderTrackingScreen';
 import OrderHistoryScreen from '../screens/customer/OrderHistoryScreen';
-
 import DriverHomeScreen from '../screens/driver/DriverHomeScreen';
 import DriverOrderScreen from '../screens/driver/DriverOrderScreen';
-
+import DriverMapScreen from '../screens/driver/DriverMapScreen';
 const Stack = createNativeStackNavigator();
-
 const navTheme = {
   ...DefaultTheme,
   colors: {
     ...DefaultTheme.colors,
-    background: colors.bg,
-    card: colors.surface,
+    background: colors.bg,   card: colors.surface,
     text: colors.text,
     border: colors.border,
     primary: colors.live,
   },
 };
-
 const screenOptions = {
   headerStyle: { backgroundColor: colors.surface },
   headerTintColor: colors.text,
   headerShadowVisible: false,
 };
-
 function AuthStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -45,7 +38,6 @@ function AuthStack() {
     </Stack.Navigator>
   );
 }
-
 function CustomerStack() {
   return (
     <CartProvider>
@@ -70,19 +62,17 @@ function CustomerStack() {
     </CartProvider>
   );
 }
-
 function DriverStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Zelo Driver', headerShown: false }} />
       <Stack.Screen name="DriverOrder" component={DriverOrderScreen} options={{ title: 'Active delivery' }} />
+      <Stack.Screen name="DriverMap" component={DriverMapScreen} options={{ title: 'Navigate', headerShown: false }} />
     </Stack.Navigator>
   );
 }
-
 export default function RootNavigator() {
   const { user, loading } = useAuth();
-
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center' }}>
@@ -90,7 +80,6 @@ export default function RootNavigator() {
       </View>
     );
   }
-
   return (
     <NavigationContainer theme={navTheme}>
       {!user ? <AuthStack /> : user.role === 'driver' ? <DriverStack /> : <CustomerStack />}

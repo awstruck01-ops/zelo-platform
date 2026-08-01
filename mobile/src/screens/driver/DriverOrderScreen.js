@@ -20,6 +20,9 @@ const NEXT_STAGE_FOR_STATUS = {
   arrived_at_customer: 4,
 };
 
+// Statuses at or past pickup mean the driver should be navigating to the customer
+const DROPOFF_STATUSES = ['picked_up', 'en_route_to_customer', 'arrived_at_customer'];
+
 export default function DriverOrderScreen({ route, navigation }) {
   const { orderId } = route.params;
   const [order, setOrder] = useState(null);
@@ -50,6 +53,37 @@ export default function DriverOrderScreen({ route, navigation }) {
     }
   };
 
+  const openMap = () => {
+    if (!order) return;
+
+    const phase = DROPOFF_STATUSES.includes(order.status) ? 'to_dropoff' : 'to_pickup';
+
+    // delivery_address is stored as JSON; fall back gracefully if the shape is unexpected
+    let dropoffLabel = 'Customer';
+    try {
+      const addr = typeof order.delivery_address === 'string'
+        ? JSON.parse(order.delivery_address)
+        : order.delivery_address;
+      dropoffLabel = addr?.line1 || addr?.formatted || addr?.address || dropoffLabel;
+    } catch {
+      // keep fallback label
+    }
+
+    navigation.navigate('DriverMap', {
+      pickup: {
+        latitude: order.seller_lat,
+        longitude: order.seller_lng,
+        label: order.business_name || order.seller_address,
+      },
+      dropoff: {
+        latitude: order.delivery_lat,
+        longitude: order.delivery_lng,
+        label: dropoffLabel,
+      },
+      phase,
+    });
+  };
+
   if (!order) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
 
   const nextStageIndex = NEXT_STAGE_FOR_STATUS[order.status];
@@ -63,6 +97,10 @@ export default function DriverOrderScreen({ route, navigation }) {
       <View style={styles.card}>
         <OrderRail status={order.status} />
       </View>
+
+      <TouchableOpacity style={styles.navigateButton} onPress={openMap}>
+        <Text style={styles.navigateButtonText}>Open Map</Text>
+      </TouchableOpacity>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -84,6 +122,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '700', color: colors.text },
   sub: { color: colors.textDim, marginTop: 4, marginBottom: 20 },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 16, marginBottom: 20 },
+  navigateButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 12 },
+  navigateButtonText: { color: colors.text, fontWeight: '700', fontSize: 15 },
   primaryButton: { backgroundColor: colors.live, borderRadius: 10, padding: 16, alignItems: 'center' },
   primaryButtonText: { color: colors.liveText, fontWeight: '700', fontSize: 15 },
   error: { color: colors.danger, marginBottom: 12 },
