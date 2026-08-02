@@ -69,6 +69,13 @@ export default function DriverOrderScreen({ route, navigation }) {
       // keep fallback label
     }
 
+    Alert.alert('Debug', JSON.stringify({
+      seller_lat: order.seller_lat,
+      seller_lng: order.seller_lng,
+      delivery_lat: order.delivery_lat,
+      delivery_lng: order.delivery_lng,
+    }));
+
     navigation.navigate('DriverMap', {
       pickup: {
         latitude: order.seller_lat,
