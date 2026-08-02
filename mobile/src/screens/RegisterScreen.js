@@ -79,7 +79,7 @@ export default function RegisterScreen({ navigation }) {
         name: asset.fileName || `upload-${Date.now()}.jpg`,
         type: asset.mimeType || 'image/jpeg',
       });
-      const res = await api.post('/uploads', formData);
+      const res = await api.post('/uploads/registration', formData);
       setUrl(res.data.data.url);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to upload document. Please try again.');
