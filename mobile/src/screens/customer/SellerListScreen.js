@@ -70,9 +70,19 @@ export default function SellerListScreen({ navigation }) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Nearby</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('OrderHistory')}>
-          <Text style={{ color: colors.live }}>My orders</Text>
-        </TouchableOpacity>
+        <View style={{ alignItems: 'flex-end', gap: 6 }}>
+          <TouchableOpacity onPress={() => navigation.navigate('OrderHistory')}>
+            <Text style={{ color: colors.live }}>My orders</Text>
+          </TouchableOpacity>
+          {user?.role === 'driver' && (
+            <TouchableOpacity onPress={() => setAppMode(null)}>
+              <Text style={{ color: colors.live, fontSize: 13 }}>Switch mode</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={logout}>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <FlatList
@@ -95,22 +105,12 @@ export default function SellerListScreen({ navigation }) {
 </TouchableOpacity>
         )}
       />
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, padding: 16 }}>
-        {user?.role === 'driver' && (
-          <TouchableOpacity onPress={() => setAppMode(null)}>
-            <Text style={{ color: colors.live }}>Switch mode</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity onPress={logout}>
-          <Text style={{ color: colors.textDim }}>Sign out</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 60 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 20, paddingTop: 60 },
   title: { fontSize: 24, fontWeight: '700', color: colors.text },
   card: {
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
