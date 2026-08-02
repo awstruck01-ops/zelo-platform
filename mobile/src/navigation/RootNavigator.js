@@ -11,6 +11,7 @@ import SellerDetailScreen from '../screens/customer/SellerDetailScreen';
 import CartScreen from '../screens/customer/CartScreen';
 import OrderTrackingScreen from '../screens/customer/OrderTrackingScreen';
 import OrderHistoryScreen from '../screens/customer/OrderHistoryScreen';
+import PinLocationScreen from '../screens/customer/PinLocationScreen';
 import DriverHomeScreen from '../screens/driver/DriverHomeScreen';
 import DriverOrderScreen from '../screens/driver/DriverOrderScreen';
 import DriverMapScreen from '../screens/driver/DriverMapScreen';
@@ -62,6 +63,7 @@ function CustomerStack() {
         <Stack.Screen name="Cart" component={CartScreen} options={{ title: 'Your order' }} />
         <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} options={{ title: 'Track order', headerBackVisible: false }} />
         <Stack.Screen name="OrderHistory" component={OrderHistoryScreen} options={{ title: 'My orders' }} />
+        <Stack.Screen name="PinLocation" component={PinLocationScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </CartProvider>
   );

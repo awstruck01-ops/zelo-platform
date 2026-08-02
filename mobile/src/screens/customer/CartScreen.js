@@ -84,6 +84,7 @@ export default function CartScreen({ navigation }) {
             deliveryLng={deliveryLng}
             deliveryAddress={deliveryAddress}
             onLocationSet={setDeliveryLocation}
+            navigation={navigation}
           />
         }
         renderItem={({ item }) => (

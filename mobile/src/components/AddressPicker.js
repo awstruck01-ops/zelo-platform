@@ -2,12 +2,10 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { colors } from '../theme';
 import { getCurrentCoords, reverseGeocode } from '../utils/location';
-
-export default function AddressPicker({ deliveryLat, deliveryLng, deliveryAddress, onLocationSet }) {
+export default function AddressPicker({ deliveryLat, deliveryLng, deliveryAddress, onLocationSet, navigation }) {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState('');
   const [labelDraft, setLabelDraft] = useState(deliveryAddress?.text || '');
-
   const useMyLocation = async () => {
     setLocating(true);
     setError('');
@@ -23,7 +21,17 @@ export default function AddressPicker({ deliveryLat, deliveryLng, deliveryAddres
       setLocating(false);
     }
   };
-
+  const pinOnMap = () => {
+    if (!navigation) return;
+    navigation.navigate('PinLocation', {
+      initialLat: deliveryLat,
+      initialLng: deliveryLng,
+      onConfirm: (lat, lng, addr) => {
+        setLabelDraft(addr.text);
+        onLocationSet(lat, lng, addr);
+      },
+    });
+  };
   const applyManualLabel = () => {
     if (deliveryLat == null || deliveryLng == null) {
       setError('Set your location first, then you can edit the address text');
@@ -31,21 +39,22 @@ export default function AddressPicker({ deliveryLat, deliveryLng, deliveryAddres
     }
     onLocationSet(deliveryLat, deliveryLng, { label: deliveryAddress?.label || 'Delivery address', text: labelDraft });
   };
-
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>Delivery address</Text>
-
       {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <TouchableOpacity style={styles.locateButton} onPress={useMyLocation} disabled={locating}>
-        {locating ? (
-          <ActivityIndicator color={colors.live} />
-        ) : (
-          <Text style={{ color: colors.live, fontWeight: '600' }}>📍 Use my current location</Text>
-        )}
-      </TouchableOpacity>
-
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <TouchableOpacity style={[styles.locateButton, { flex: 1 }]} onPress={useMyLocation} disabled={locating}>
+          {locating ? (
+            <ActivityIndicator color={colors.live} />
+          ) : (
+            <Text style={{ color: colors.live, fontWeight: '600' }}>📍 Use my current location</Text>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.locateButton, { flex: 1 }]} onPress={pinOnMap}>
+          <Text style={{ color: colors.live, fontWeight: '600' }}>📌 Pin a location</Text>
+        </TouchableOpacity>
+      </View>
       {deliveryLat != null && (
         <>
           <Text style={styles.label}>Address details (edit if needed)</Text>
@@ -64,7 +73,6 @@ export default function AddressPicker({ deliveryLat, deliveryLng, deliveryAddres
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { marginBottom: 16 },
   heading: { color: colors.text, fontWeight: '700', marginBottom: 10, fontSize: 15 },
