@@ -65,6 +65,10 @@ export default function RegisterScreen({ navigation }) {
 
   // Shared upload helper — takes an already-picked/captured asset and sends it
   // to the backend, updating the relevant preview URL on success.
+  // IMPORTANT: do NOT manually set a Content-Type header here. React Native's
+  // networking layer needs to generate the multipart boundary itself; setting
+  // 'multipart/form-data' without a boundary makes the server unable to parse
+  // the upload, so the request silently fails server-side.
   const uploadAsset = async (asset, setUrl, setUploading) => {
     setUploading(true);
     setError('');
@@ -75,9 +79,7 @@ export default function RegisterScreen({ navigation }) {
         name: asset.fileName || `upload-${Date.now()}.jpg`,
         type: asset.mimeType || 'image/jpeg',
       });
-      const res = await api.post('/uploads', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await api.post('/uploads', formData);
       setUrl(res.data.data.url);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to upload document. Please try again.');
