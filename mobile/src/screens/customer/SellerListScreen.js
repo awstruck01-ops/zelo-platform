@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, Dimensions } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { useIsFocused } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { colors } from '../../theme';
 import api from '../../api/client';
@@ -8,66 +9,69 @@ import { useAuth } from '../../context/AuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_HEIGHT = 220;
-const CAROUSEL_INTERVAL_MS = 6000;
+const CAROUSEL_INTERVAL_MS = 4500;
 
 const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 
-function MediaVideo({ uri, style }) {
+function MediaVideo({ uri, style, active }) {
   const player = useVideoPlayer(uri, (player) => {
     player.loop = true;
     player.muted = true;
-    player.play();
   });
+
+  // Only actually play the video while it's the visible carousel slide and
+  // this screen is focused — otherwise leave it paused so it isn't decoding
+  // frames in the background, which was building up and crashing the app.
+  useEffect(() => {
+    if (active) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [active, player]);
+
   return <VideoView player={player} style={style} contentFit="cover" nativeControls={false} />;
 }
 
-function MediaThumbnail({ uri, style }) {
+function MediaThumbnail({ uri, style, active = true }) {
   if (!uri) return null;
-  if (isVideoUrl(uri)) return <MediaVideo uri={uri} style={style} />;
+  if (isVideoUrl(uri)) return <MediaVideo uri={uri} style={style} active={active} />;
   return <Image source={{ uri }} style={style} />;
 }
 
-function BannerCarousel({ sellers }) {
-  const carouselRef = useRef(null);
-  const indexRef = useRef(0);
+function BannerCarousel({ sellers, screenFocused }) {
+  const [index, setIndex] = useState(0);
   const withImages = sellers.filter((s) => s.image_url);
 
   useEffect(() => {
-    if (withImages.length < 2) return;
+    if (!screenFocused || withImages.length < 2) return;
     const interval = setInterval(() => {
-      indexRef.current = (indexRef.current + 1) % withImages.length;
-      carouselRef.current?.scrollToOffset({ offset: indexRef.current * SCREEN_WIDTH, animated: true });
+      setIndex((i) => (i + 1) % withImages.length);
     }, CAROUSEL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [withImages.length]);
+  }, [screenFocused, withImages.length]);
 
   if (withImages.length === 0) return null;
 
+  // Only the active slide is mounted, instead of rendering every banner
+  // (and every video player) at once — that was the source of the crash.
+  const current = withImages[index % withImages.length];
+
   return (
     <View style={{ height: CAROUSEL_HEIGHT, backgroundColor: colors.border }}>
-      <FlatList
-        ref={carouselRef}
-        data={withImages}
-        keyExtractor={(s) => s.id}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        scrollEnabled={false}
-        renderItem={({ item }) => (
-          <View style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }}>
-            <MediaThumbnail uri={item.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} />
-            <View style={styles.carouselOverlay}>
-              <Text style={styles.carouselTitle}>{item.business_name}</Text>
-            </View>
-          </View>
-        )}
-      />
+      <View style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }}>
+        <MediaThumbnail uri={current.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} active={screenFocused} />
+        <View style={styles.carouselOverlay}>
+          <Text style={styles.carouselTitle}>{current.business_name}</Text>
+        </View>
+      </View>
     </View>
   );
 }
 
 export default function SellerListScreen({ navigation }) {
   const { logout, user, setAppMode } = useAuth();
+  const isFocused = useIsFocused();
   const [sellers, setSellers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -133,12 +137,12 @@ export default function SellerListScreen({ navigation }) {
         keyExtractor={(s) => s.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.live} />}
         contentContainerStyle={{ padding: 16, gap: 12 }}
-        ListHeaderComponent={<BannerCarousel sellers={sellers} />}
+        ListHeaderComponent={<BannerCarousel sellers={sellers} screenFocused={isFocused} />}
         ListHeaderComponentStyle={{ marginHorizontal: -16, marginBottom: 16 }}
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>No sellers found nearby.</Text>}
        renderItem={({ item }) => (
          <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
-  <MediaThumbnail uri={item.image_url} style={styles.cardImage} />
+  <MediaThumbnail uri={item.image_url} style={styles.cardImage} active={false} />
   <View style={{ flex: 1 }}>
     <Text style={styles.cardTitle}>{item.business_name}</Text>
     <Text style={styles.cardSub}>{item.category} · {item.item_count} item(s)</Text>
