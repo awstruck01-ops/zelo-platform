@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, Dimensions, Animated } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useIsFocused } from '@react-navigation/native';
@@ -9,8 +9,8 @@ import { useAuth } from '../../context/AuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_HEIGHT = 220;
-const CAROUSEL_INTERVAL_MS = 4500;
-const CROSSFADE_MS = 400;
+const CAROUSEL_INTERVAL_MS = 5800;
+const CROSSFADE_MS = 600;
 
 const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 
@@ -28,7 +28,13 @@ function MediaVideo({ uri, style, active }) {
     }
   }, [active, player]);
 
-  return <VideoView player={player} style={style} contentFit="cover" nativeControls={false} />;
+  // pointerEvents="none" — the video surface must not swallow taps, or the
+  // TouchableOpacity wrapping this slide never receives the press.
+  return (
+    <View style={style} pointerEvents="none">
+      <VideoView player={player} style={StyleSheet.absoluteFillObject} contentFit="cover" nativeControls={false} />
+    </View>
+  );
 }
 
 function MediaThumbnail({ uri, style, active = true }) {
@@ -37,16 +43,21 @@ function MediaThumbnail({ uri, style, active = true }) {
   return <Image source={{ uri }} style={style} />;
 }
 
-// Renders the current and previous slide stacked on top of each other and
-// crossfades between them, so switching slides never shows a blank/gray
-// frame while the new image/video is still loading. Images are prefetched
-// ahead of time into RN's image cache so they're already ready by the time
-// their slide comes up.
+// Every slide stays mounted the whole time (just hidden/paused), instead of
+// being created fresh when its turn comes up. That means every video already
+// has a decoded first frame ready to show, and every image is already
+// downloaded — eliminating the black/gray flash that showed up when slides
+// were mounted on-demand. Only the active slide actually plays video or
+// receives taps; the rest sit inert underneath.
 function BannerCarousel({ sellers, screenFocused, onPressSeller }) {
-  const [index, setIndex] = useState(0);
-  const [prevIndex, setPrevIndex] = useState(null);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
   const withImages = sellers.filter((s) => s.image_url);
+  const [index, setIndex] = useState(0);
+  const opacities = useRef([]).current;
+
+  if (opacities.length !== withImages.length) {
+    opacities.length = 0;
+    withImages.forEach((_, i) => opacities.push(new Animated.Value(i === 0 ? 1 : 0)));
+  }
 
   useEffect(() => {
     withImages.forEach((s) => {
@@ -60,44 +71,40 @@ function BannerCarousel({ sellers, screenFocused, onPressSeller }) {
   useEffect(() => {
     if (!screenFocused || withImages.length < 2) return;
     const interval = setInterval(() => {
-      setIndex((i) => {
-        const next = (i + 1) % withImages.length;
-        setPrevIndex(i);
-        fadeAnim.setValue(0);
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: CROSSFADE_MS,
-          useNativeDriver: true,
-        }).start(() => setPrevIndex(null));
+      setIndex((current) => {
+        const next = (current + 1) % withImages.length;
+        Animated.parallel([
+          Animated.timing(opacities[current], { toValue: 0, duration: CROSSFADE_MS, useNativeDriver: true }),
+          Animated.timing(opacities[next], { toValue: 1, duration: CROSSFADE_MS, useNativeDriver: true }),
+        ]).start();
         return next;
       });
     }, CAROUSEL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [screenFocused, withImages.length, fadeAnim]);
+  }, [screenFocused, withImages.length, opacities]);
 
   if (withImages.length === 0) return null;
 
-  const current = withImages[index % withImages.length];
-  const previous = prevIndex != null ? withImages[prevIndex % withImages.length] : null;
-
   return (
     <View style={{ height: CAROUSEL_HEIGHT, backgroundColor: colors.border }}>
-      {previous && (
-        <View style={StyleSheet.absoluteFillObject}>
-          <MediaThumbnail uri={previous.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} active={false} />
-          <View style={styles.carouselOverlay}>
-            <Text style={styles.carouselTitle}>{previous.business_name}</Text>
-          </View>
-        </View>
-      )}
-      <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: fadeAnim }]}>
-        <TouchableOpacity activeOpacity={0.9} onPress={() => onPressSeller(current.id)} style={StyleSheet.absoluteFillObject}>
-          <MediaThumbnail uri={current.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} active={screenFocused} />
-          <View style={styles.carouselOverlay}>
-            <Text style={styles.carouselTitle}>{current.business_name}</Text>
-          </View>
-        </TouchableOpacity>
-      </Animated.View>
+      {withImages.map((seller, i) => (
+        <Animated.View
+          key={seller.id}
+          pointerEvents={i === index ? 'auto' : 'none'}
+          style={[StyleSheet.absoluteFillObject, { opacity: opacities[i] }]}
+        >
+          <TouchableOpacity activeOpacity={0.9} onPress={() => onPressSeller(seller.id)} style={StyleSheet.absoluteFillObject}>
+            <MediaThumbnail
+              uri={seller.image_url}
+              style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }}
+              active={i === index && screenFocused}
+            />
+            <View style={styles.carouselOverlay}>
+              <Text style={styles.carouselTitle}>{seller.business_name}</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
+      ))}
     </View>
   );
 }
