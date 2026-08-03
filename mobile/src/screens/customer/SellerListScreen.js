@@ -38,13 +38,24 @@ function MediaThumbnail({ uri, style, active = true }) {
 }
 
 // Renders the current and previous slide stacked on top of each other and
-// crossfades between them, so switching slides never shows a blank/black
-// frame while the new video/image is still initializing.
-function BannerCarousel({ sellers, screenFocused }) {
+// crossfades between them, so switching slides never shows a blank/gray
+// frame while the new image/video is still loading. Images are prefetched
+// ahead of time into RN's image cache so they're already ready by the time
+// their slide comes up.
+function BannerCarousel({ sellers, screenFocused, onPressSeller }) {
   const [index, setIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const withImages = sellers.filter((s) => s.image_url);
+
+  useEffect(() => {
+    withImages.forEach((s) => {
+      if (!isVideoUrl(s.image_url)) {
+        Image.prefetch(s.image_url).catch(() => {});
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sellers]);
 
   useEffect(() => {
     if (!screenFocused || withImages.length < 2) return;
@@ -80,10 +91,12 @@ function BannerCarousel({ sellers, screenFocused }) {
         </View>
       )}
       <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: fadeAnim }]}>
-        <MediaThumbnail uri={current.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} active={screenFocused} />
-        <View style={styles.carouselOverlay}>
-          <Text style={styles.carouselTitle}>{current.business_name}</Text>
-        </View>
+        <TouchableOpacity activeOpacity={0.9} onPress={() => onPressSeller(current.id)} style={StyleSheet.absoluteFillObject}>
+          <MediaThumbnail uri={current.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} active={screenFocused} />
+          <View style={styles.carouselOverlay}>
+            <Text style={styles.carouselTitle}>{current.business_name}</Text>
+          </View>
+        </TouchableOpacity>
       </Animated.View>
     </View>
   );
@@ -157,7 +170,13 @@ export default function SellerListScreen({ navigation }) {
         keyExtractor={(s) => s.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.live} />}
         contentContainerStyle={{ padding: 16, gap: 12 }}
-        ListHeaderComponent={<BannerCarousel sellers={sellers} screenFocused={isFocused} />}
+        ListHeaderComponent={
+          <BannerCarousel
+            sellers={sellers}
+            screenFocused={isFocused}
+            onPressSeller={(sellerId) => navigation.navigate('SellerDetail', { sellerId })}
+          />
+        }
         ListHeaderComponentStyle={{ marginHorizontal: -16, marginBottom: 16 }}
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>No sellers found nearby.</Text>}
        renderItem={({ item }) => (
