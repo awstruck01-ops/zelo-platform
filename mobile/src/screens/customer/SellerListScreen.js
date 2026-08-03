@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, Dimensions } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, Dimensions, Animated } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useIsFocused } from '@react-navigation/native';
 import * as Location from 'expo-location';
@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_HEIGHT = 220;
 const CAROUSEL_INTERVAL_MS = 4500;
+const CROSSFADE_MS = 400;
 
 const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 
@@ -19,9 +20,6 @@ function MediaVideo({ uri, style, active }) {
     player.muted = true;
   });
 
-  // Only actually play the video while it's the visible carousel slide and
-  // this screen is focused — otherwise leave it paused so it isn't decoding
-  // frames in the background, which was building up and crashing the app.
   useEffect(() => {
     if (active) {
       player.play();
@@ -39,32 +37,54 @@ function MediaThumbnail({ uri, style, active = true }) {
   return <Image source={{ uri }} style={style} />;
 }
 
+// Renders the current and previous slide stacked on top of each other and
+// crossfades between them, so switching slides never shows a blank/black
+// frame while the new video/image is still initializing.
 function BannerCarousel({ sellers, screenFocused }) {
   const [index, setIndex] = useState(0);
+  const [prevIndex, setPrevIndex] = useState(null);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
   const withImages = sellers.filter((s) => s.image_url);
 
   useEffect(() => {
     if (!screenFocused || withImages.length < 2) return;
     const interval = setInterval(() => {
-      setIndex((i) => (i + 1) % withImages.length);
+      setIndex((i) => {
+        const next = (i + 1) % withImages.length;
+        setPrevIndex(i);
+        fadeAnim.setValue(0);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: CROSSFADE_MS,
+          useNativeDriver: true,
+        }).start(() => setPrevIndex(null));
+        return next;
+      });
     }, CAROUSEL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [screenFocused, withImages.length]);
+  }, [screenFocused, withImages.length, fadeAnim]);
 
   if (withImages.length === 0) return null;
 
-  // Only the active slide is mounted, instead of rendering every banner
-  // (and every video player) at once — that was the source of the crash.
   const current = withImages[index % withImages.length];
+  const previous = prevIndex != null ? withImages[prevIndex % withImages.length] : null;
 
   return (
     <View style={{ height: CAROUSEL_HEIGHT, backgroundColor: colors.border }}>
-      <View style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }}>
+      {previous && (
+        <View style={StyleSheet.absoluteFillObject}>
+          <MediaThumbnail uri={previous.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} active={false} />
+          <View style={styles.carouselOverlay}>
+            <Text style={styles.carouselTitle}>{previous.business_name}</Text>
+          </View>
+        </View>
+      )}
+      <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: fadeAnim }]}>
         <MediaThumbnail uri={current.image_url} style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }} active={screenFocused} />
         <View style={styles.carouselOverlay}>
           <Text style={styles.carouselTitle}>{current.business_name}</Text>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
