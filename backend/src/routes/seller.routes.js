@@ -45,6 +45,57 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// Get the authenticated seller's own profile — used by the seller-web app's
+// "My Business" settings screen. Must come before /:id so it doesn't get
+// swallowed by the param route.
+router.get('/me', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT s.*, u.phone, u.email FROM sellers s JOIN users u ON u.id = s.user_id WHERE s.user_id = $1`,
+      [req.user.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update the authenticated seller's own profile. Deliberately allowlisted —
+// sellers can change their own storefront photo/video, name, address, hours,
+// prep time, availability, and delivery radius, but NOT verification status,
+// commission rate, or Stripe account fields (those stay admin/system-only).
+router.patch('/me', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const allowedFields = [
+      'image_url', 'business_name', 'address', 'geo_lat', 'geo_lng',
+      'operating_hours', 'avg_prep_time', 'delivery_radius_mi', 'is_available',
+    ];
+    const jsonFields = ['operating_hours'];
+    const updates = [];
+    const values = [];
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        values.push(jsonFields.includes(field) ? JSON.stringify(req.body[field]) : req.body[field]);
+        updates.push(`${field} = $${values.length}`);
+      }
+    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
+
+    values.push(req.user.id);
+    const result = await pool.query(
+      `UPDATE sellers SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE user_id = $${values.length} RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get seller by ID (+ full menu/catalog)
 router.get('/:id', async (req, res, next) => {
   try {
@@ -199,6 +250,152 @@ router.get('/:id/earnings', authMiddleware, roleMiddleware(['seller', 'admin']),
         ...stats.rows[0],
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Tax form (current version + submission) — same versioned system as drivers
+// ---------------------------------------------------------------------------
+
+router.get('/me/tax-form/current', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
+    if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    const sellerId = sellerResult.rows[0].id;
+
+    const versionResult = await pool.query('SELECT * FROM tax_form_versions WHERE is_current = TRUE LIMIT 1');
+    const currentVersion = versionResult.rows[0] || null;
+
+    let latestSubmission = null;
+    if (currentVersion) {
+      const subResult = await pool.query(
+        `SELECT * FROM seller_tax_submissions
+         WHERE seller_id = $1 AND tax_form_version_id = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [sellerId, currentVersion.id]
+      );
+      latestSubmission = subResult.rows[0] || null;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        current_version: currentVersion,
+        submission_for_current_version: latestSubmission,
+        needs_submission: !!currentVersion && !latestSubmission,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
+    if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    const sellerId = sellerResult.rows[0].id;
+
+    const {
+      legal_name, business_name, tax_classification,
+      address, city, state, zip, tax_id, signature_name,
+    } = req.body;
+
+    if (!legal_name || !tax_classification || !address || !city || !state || !zip || !tax_id || !signature_name) {
+      return res.status(400).json({ error: 'legal_name, tax_classification, address, city, state, zip, tax_id, and signature_name are required' });
+    }
+
+    const versionResult = await pool.query('SELECT * FROM tax_form_versions WHERE is_current = TRUE LIMIT 1');
+    if (versionResult.rows.length === 0) {
+      return res.status(409).json({ error: 'No tax form version is currently published' });
+    }
+    const currentVersion = versionResult.rows[0];
+
+    const result = await pool.query(
+      `INSERT INTO seller_tax_submissions (
+        seller_id, tax_form_version_id, legal_name, business_name, tax_classification,
+        address, city, state, zip, tax_id, signature_name
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [sellerId, currentVersion.id, legal_name, business_name || null, tax_classification,
+        address, city, state, zip, tax_id, signature_name]
+    );
+
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Inbox
+// ---------------------------------------------------------------------------
+
+router.get('/me/inbox', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
+    if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    const sellerId = sellerResult.rows[0].id;
+
+    const messages = await pool.query(
+      `SELECT * FROM seller_inbox_messages
+       WHERE seller_id = $1 OR seller_id IS NULL
+       ORDER BY created_at DESC LIMIT 100`,
+      [sellerId]
+    );
+    const unreadResult = await pool.query(
+      `SELECT COUNT(*) FROM seller_inbox_messages
+       WHERE (seller_id = $1 OR seller_id IS NULL) AND is_read = FALSE`,
+      [sellerId]
+    );
+
+    res.json({
+      success: true,
+      data: messages.rows,
+      unread_count: parseInt(unreadResult.rows[0].count, 10),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/me/inbox/:id/read', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
+    if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    const sellerId = sellerResult.rows[0].id;
+    const { id } = req.params;
+
+    const msgResult = await pool.query('SELECT * FROM seller_inbox_messages WHERE id = $1', [id]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
+    const message = msgResult.rows[0];
+
+    if (message.seller_id !== null && message.seller_id !== sellerId) {
+      return res.status(403).json({ error: 'Not authorized for this message' });
+    }
+
+    if (message.seller_id === sellerId) {
+      const result = await pool.query(
+        'UPDATE seller_inbox_messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 RETURNING *',
+        [id]
+      );
+      return res.json({ success: true, data: result.rows[0] });
+    }
+
+    const existing = await pool.query(
+      'SELECT id FROM seller_inbox_messages WHERE seller_id = $1 AND type = $2 AND title = $3 AND created_at = $4',
+      [sellerId, message.type, message.title, message.created_at]
+    );
+    if (existing.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO seller_inbox_messages (seller_id, type, title, body, related_tax_form_version_id, is_read, read_at, created_by, created_at)
+         VALUES ($1,$2,$3,$4,$5,TRUE,NOW(),$6,$7)`,
+        [sellerId, message.type, message.title, message.body, message.related_tax_form_version_id, message.created_by, message.created_at]
+      );
+    }
+
+    res.json({ success: true, message: 'Marked as read' });
   } catch (error) {
     next(error);
   }
