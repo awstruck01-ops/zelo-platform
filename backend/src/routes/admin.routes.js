@@ -73,7 +73,11 @@ router.get('/transactions', async (req, res, next) => {
   }
 });
 
-// Revenue summary: commissions + subscriptions + delivery margin
+// Revenue summary: broken out by charge type so the admin overview can show
+// each as its own tappable tile/tab — commission, delivery margin, service
+// fee, tips, and driver payouts, rather than one blended total.
+// NOTE: this previously omitted service_fee entirely from the platform
+// revenue total despite it being collected on every order — fixed here.
 router.get('/revenue', async (req, res, next) => {
   try {
     const { from_date, to_date } = req.query;
@@ -86,6 +90,11 @@ router.get('/revenue', async (req, res, next) => {
       `SELECT
         COALESCE(SUM(commission_amount), 0) as total_commission,
         COALESCE(SUM(platform_delivery_margin), 0) as total_delivery_margin,
+        COALESCE(SUM(surcharge_platform_margin), 0) as total_surcharge_margin,
+        COALESCE(SUM(service_fee), 0) as total_service_fee,
+        COALESCE(SUM(tip_amount), 0) as total_tips,
+        COALESCE(SUM(driver_earnings), 0) as total_driver_earnings,
+        COALESCE(SUM(seller_earnings), 0) as total_seller_earnings,
         COUNT(*) as completed_orders,
         COALESCE(SUM(total_amount), 0) as gross_transaction_volume
        FROM orders WHERE status = 'completed' ${dateFilter}`,
@@ -100,19 +109,39 @@ router.get('/revenue', async (req, res, next) => {
 
     const row = orderRevenue.rows[0];
     const subRow = subscriptionRevenue.rows[0];
+    // Platform revenue = what Zelo actually keeps. Tips and driver_earnings
+    // are payouts, not revenue, so they're reported separately for
+    // visibility but deliberately excluded from this total.
     const totalPlatformRevenue =
-      parseFloat(row.total_commission) + parseFloat(row.total_delivery_margin) + parseFloat(subRow.total_subscription_revenue);
+      parseFloat(row.total_commission) + parseFloat(row.total_delivery_margin) +
+      parseFloat(row.total_surcharge_margin) + parseFloat(row.total_service_fee) +
+      parseFloat(subRow.total_subscription_revenue);
 
     res.json({
       success: true,
       data: {
-        commission_revenue: row.total_commission,
-        delivery_margin_revenue: row.total_delivery_margin,
-        subscription_revenue: subRow.total_subscription_revenue,
+        // Each of these is a distinct "charge type" tile for the admin UI
+        charges: {
+          commission: Math.round(parseFloat(row.total_commission) * 100) / 100,
+          delivery_margin: Math.round(parseFloat(row.total_delivery_margin) * 100) / 100,
+          surcharge_margin: Math.round(parseFloat(row.total_surcharge_margin) * 100) / 100,
+          service_fee: Math.round(parseFloat(row.total_service_fee) * 100) / 100,
+          subscription: Math.round(parseFloat(subRow.total_subscription_revenue) * 100) / 100,
+          tips: Math.round(parseFloat(row.total_tips) * 100) / 100,
+        },
+        payouts: {
+          driver_earnings: Math.round(parseFloat(row.total_driver_earnings) * 100) / 100,
+          driver_tips: Math.round(parseFloat(row.total_tips) * 100) / 100,
+          seller_earnings: Math.round(parseFloat(row.total_seller_earnings) * 100) / 100,
+        },
         total_platform_revenue: Math.round(totalPlatformRevenue * 100) / 100,
         completed_orders: row.completed_orders,
         gross_transaction_volume: row.gross_transaction_volume,
         active_subscriptions: subRow.active_subscriptions,
+        // Kept for backwards compatibility with anything already reading these flat fields
+        commission_revenue: row.total_commission,
+        delivery_margin_revenue: row.total_delivery_margin,
+        subscription_revenue: subRow.total_subscription_revenue,
       },
     });
   } catch (error) {
@@ -120,7 +149,37 @@ router.get('/revenue', async (req, res, next) => {
   }
 });
 
-// List sellers/drivers pending verification
+// List ALL drivers, any verification status — lets admin review submitted
+// documents (license, insurance, selfie, W-9) anytime, not just while pending.
+router.get('/drivers', async (req, res, next) => {
+  try {
+    const drivers = await pool.query(
+      `SELECT d.*, u.phone, u.email, u.status as account_status
+       FROM driver_profiles d JOIN users u ON u.id = d.user_id
+       ORDER BY d.created_at DESC`
+    );
+    res.json({ success: true, data: drivers.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Single driver's full profile + documents, for the admin detail view.
+router.get('/drivers/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT d.*, u.phone, u.email, u.status as account_status
+       FROM driver_profiles d JOIN users u ON u.id = d.user_id
+       WHERE d.id = $1`,
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
 router.get('/verifications/pending', async (req, res, next) => {
   try {
     const sellers = await pool.query(
@@ -277,6 +336,48 @@ router.patch('/drivers/:id/verify', async (req, res, next) => {
   }
 });
 
+// Admin override: update any seller's profile fields (moderation use — e.g.
+// removing/replacing inappropriate or broken storefront media). Sellers use
+// their own PATCH /sellers/me for routine updates; this exists as a backup
+// path, not the primary workflow.
+router.patch('/sellers/:id/media', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const allowedFields = [
+      'image_url', 'business_name', 'address', 'geo_lat', 'geo_lng',
+      'operating_hours', 'avg_prep_time', 'delivery_radius_mi', 'is_available',
+    ];
+    const jsonFields = ['operating_hours'];
+    const updates = [];
+    const values = [];
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        values.push(jsonFields.includes(field) ? JSON.stringify(req.body[field]) : req.body[field]);
+        updates.push(`${field} = $${values.length}`);
+      }
+    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
+
+    values.push(id);
+    const result = await pool.query(
+      `UPDATE sellers SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Seller not found' });
+
+    await pool.query(
+      `INSERT INTO audit_log (actor_user_id, action, target_type, target_id, details)
+       VALUES ($1, 'seller_media_updated', 'seller', $2, $3)`,
+      [req.user.id, id, JSON.stringify(req.body)]
+    );
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Suspend/reactivate any user
 router.patch('/users/:id/status', async (req, res, next) => {
   try {
@@ -331,10 +432,21 @@ router.post('/tax-forms', async (req, res, next) => {
     );
     const version = versionResult.rows[0];
 
-    // Broadcast to all drivers (driver_id NULL = broadcast; driver inbox
-    // route treats NULL-driver rows as visible to everyone).
+    // Broadcast to all drivers AND all sellers (driver_id/seller_id NULL =
+    // broadcast; the respective inbox routes treat NULL rows as visible to
+    // everyone in that role).
     await client.query(
       `INSERT INTO driver_inbox_messages (driver_id, type, title, body, related_tax_form_version_id, created_by)
+       VALUES (NULL, 'tax_form_update', $1, $2, $3, $4)`,
+      [
+        `New tax form available: ${version_label}`,
+        notes || `A new version of the tax form (${version_label}) is now available. Please review and resubmit.`,
+        version.id,
+        req.user.id,
+      ]
+    );
+    await client.query(
+      `INSERT INTO seller_inbox_messages (seller_id, type, title, body, related_tax_form_version_id, created_by)
        VALUES (NULL, 'tax_form_update', $1, $2, $3, $4)`,
       [
         `New tax form available: ${version_label}`,
