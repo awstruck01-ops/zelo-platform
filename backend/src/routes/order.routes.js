@@ -4,7 +4,9 @@ const { authMiddleware, ageVerificationMiddleware, roleMiddleware } = require('.
 const { distanceMiles } = require('../utils/distance');
 const {
   calculateDeliveryFee,
+  calculateSurcharge,
   calculateCommission,
+  calculateServiceFee,
   calculateTax,
   estimateDeliveryMinutes,
   eligibleVehiclesForWeightClass,
@@ -119,25 +121,34 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
       distance,
       requiredVehicleType || 'motorcycle'
     );
+    const {
+      surcharge: bulkSurcharge,
+      driverEarnings: surchargeDriverEarnings,
+      platformMargin: surchargePlatformMargin,
+    } = calculateSurcharge(heaviestWeightClass);
+    const { serviceFee } = calculateServiceFee(subtotal);
     const { tax, taxRate } = calculateTax(subtotal, seller.sales_tax_rate ?? undefined);
     const estimatedDeliveryMinutes = estimateDeliveryMinutes(
       distance,
       requiredVehicleType || 'motorcycle',
       seller.avg_prep_time
     );
-    const totalAmount = subtotal + deliveryFee + tax;
+    const totalDriverEarnings = driverEarnings + surchargeDriverEarnings;
+    const totalAmount = subtotal + deliveryFee + bulkSurcharge + serviceFee + tax;
 
     const orderResult = await client.query(
       `INSERT INTO orders (
-        customer_id, seller_id, status, required_vehicle_type, subtotal, delivery_fee,
+        customer_id, seller_id, status, required_vehicle_type, subtotal, delivery_fee, service_fee,
+        bulk_surcharge, surcharge_driver_earnings, surcharge_platform_margin,
         tax_amount, tax_rate, commission_amount, platform_delivery_margin, driver_earnings, seller_earnings, total_amount,
         distance_mi, is_extended_distance, estimated_prep_time, estimated_delivery_minutes,
         delivery_address, delivery_lat, delivery_lng, customer_notes, special_instructions, placed_at
-      ) VALUES ($1,$2,'placed',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21, NOW())
+      ) VALUES ($1,$2,'placed',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25, NOW())
       RETURNING *`,
       [
-        req.user.id, seller_id, requiredVehicleType, subtotal, deliveryFee,
-        tax, taxRate, commission, platformMargin, driverEarnings, sellerEarnings, totalAmount,
+        req.user.id, seller_id, requiredVehicleType, subtotal, deliveryFee, serviceFee,
+        bulkSurcharge, surchargeDriverEarnings, surchargePlatformMargin,
+        tax, taxRate, commission, platformMargin, totalDriverEarnings, sellerEarnings, totalAmount,
         distance, isExtendedDistance, seller.avg_prep_time, estimatedDeliveryMinutes,
         JSON.stringify(delivery_address), delivery_lat, delivery_lng, customer_notes || null, special_instructions || null,
       ]
@@ -310,6 +321,45 @@ router.post('/:id/cancel', authMiddleware, async (req, res, next) => {
     );
 
     // TODO: trigger full refund via payment processor here.
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Customer adds/updates a tip for a delivered order. Tip goes 100% to the
+// driver, tracked separately from driver_earnings (the delivery-fee-based
+// portion) so admin can see commission, delivery margin, service fee, and
+// tips as distinct lines rather than one blended number.
+router.post('/:id/tip', authMiddleware, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { amount } = req.body;
+    if (amount === undefined || amount < 0) {
+      return res.status(400).json({ error: 'A non-negative amount is required' });
+    }
+
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1 AND customer_id = $2', [
+      id,
+      req.user.id,
+    ]);
+    if (orderResult.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    const order = orderResult.rows[0];
+
+    if (!['delivered', 'completed'].includes(order.status)) {
+      return res.status(409).json({ error: 'Tips can only be added once the order is delivered' });
+    }
+
+    const result = await pool.query(
+      `UPDATE orders SET tip_amount = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [amount, id]
+    );
+
+    // NOTE: this updates the order record only. If your original payment
+    // method doesn't already have headroom for this (e.g. a pre-authorized
+    // hold covering it), you'll need a separate Stripe charge/capture for the
+    // tip amount before it reflects in the driver's actual bank payout.
 
     res.json({ success: true, data: result.rows[0] });
   } catch (error) {
