@@ -4,8 +4,24 @@ const PER_MILE_RATE = {
   scooter: parseFloat(process.env.RATE_SCOOTER || '0.75'),
   motorcycle: parseFloat(process.env.RATE_MOTORCYCLE || '0.90'),
   car: parseFloat(process.env.RATE_CAR || '1.10'),
-  truck: parseFloat(process.env.RATE_TRUCK || '1.75'),
+  truck: parseFloat(process.env.RATE_TRUCK || '1.50'),
 };
+// Weight-class surcharge — separate from the delivery fee itself, covers the
+// extra handling effort for heavier/bulkier orders. Kept modest since the
+// truck per-mile rate already prices in vehicle cost; stacking a large
+// surcharge on top of that would double-charge for the same thing.
+const SURCHARGE_BY_WEIGHT_CLASS = {
+  light: parseFloat(process.env.SURCHARGE_LIGHT || '0'),
+  medium: parseFloat(process.env.SURCHARGE_MEDIUM || '1.00'),
+  heavy: parseFloat(process.env.SURCHARGE_HEAVY || '2.50'),
+  bulk: parseFloat(process.env.SURCHARGE_BULK || '4.50'),
+};
+// Driver keeps 80% of the delivery fee and 90% of the surcharge (higher
+// share on surcharge since it's compensation for the driver's extra
+// effort/vehicle specifically, not a general platform-margin item), plus
+// 100% of any tip (handled separately, added post-delivery).
+const DRIVER_DELIVERY_FEE_SHARE = parseFloat(process.env.DRIVER_DELIVERY_FEE_SHARE || '0.80');
+const DRIVER_SURCHARGE_SHARE = parseFloat(process.env.DRIVER_SURCHARGE_SHARE || '0.90');
 // Average speed by vehicle type (mph), used for ETA estimates
 const AVG_SPEED_MPH = {
   bicycle: 9,
@@ -51,14 +67,26 @@ const calculateDeliveryFee = (distanceMiles, vehicleType, surgeMultiplier = 1) =
   }
   fee *= surgeMultiplier;
   fee = Math.max(fee, MIN_DELIVERY_FEE);
-  const platformMargin = Math.round(fee * PLATFORM_DELIVERY_MARGIN * 100) / 100;
-  const driverEarnings = Math.round((fee - platformMargin) * 100) / 100;
+  const driverEarnings = Math.round(fee * DRIVER_DELIVERY_FEE_SHARE * 100) / 100;
+  const platformMargin = Math.round((fee - driverEarnings) * 100) / 100;
   return {
     deliveryFee: Math.round(fee * 100) / 100,
     driverEarnings,
     platformMargin,
     isExtendedDistance,
   };
+};
+
+/**
+ * Weight-class surcharge — split 90% driver / 10% platform, separate from
+ * the base delivery fee's 80/20 split, since this exists specifically to
+ * compensate the driver's extra handling effort.
+ */
+const calculateSurcharge = (weightClass) => {
+  const surcharge = SURCHARGE_BY_WEIGHT_CLASS[weightClass] ?? 0;
+  const driverEarnings = Math.round(surcharge * DRIVER_SURCHARGE_SHARE * 100) / 100;
+  const platformMargin = Math.round((surcharge - driverEarnings) * 100) / 100;
+  return { surcharge, driverEarnings, platformMargin };
 };
 const calculateCommission = (subtotal, commissionRatePercent) => {
   const rate = (commissionRatePercent ?? PLATFORM_COMMISSION_RATE * 100) / 100;
@@ -95,6 +123,7 @@ const eligibleVehiclesForWeightClass = (weightClass) => {
 };
 module.exports = {
   calculateDeliveryFee,
+  calculateSurcharge,
   calculateCommission,
   calculateServiceFee,
   calculateTax,
