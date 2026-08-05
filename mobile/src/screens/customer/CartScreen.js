@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Platform, TextInput } from 'react-native';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useCart } from '../../context/CartContext';
@@ -27,6 +27,29 @@ export default function CartScreen({ navigation }) {
   } = useCart();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState('');
+  const [tipAmount, setTipAmount] = useState(0);
+  const [customTip, setCustomTip] = useState('');
+  const [useCustomTip, setUseCustomTip] = useState(false);
+
+  const selectPresetTip = (amt) => {
+    setUseCustomTip(false);
+    setCustomTip('');
+    setTipAmount(amt);
+  };
+
+  const selectCustomTip = () => {
+    setUseCustomTip(true);
+    setTipAmount(0);
+    setCustomTip('');
+  };
+
+  const onCustomTipChange = (text) => {
+    // Allow only digits and a single decimal point
+    const cleaned = text.replace(/[^0-9.]/g, '');
+    setCustomTip(cleaned);
+    const parsed = parseFloat(cleaned);
+    setTipAmount(Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0);
+  };
 
   const placeOrder = async (acceptExtended = false) => {
     if (deliveryLat == null || deliveryLng == null) {
@@ -45,6 +68,7 @@ export default function CartScreen({ navigation }) {
         payment_method: 'card',
         processor_ref: `MOBILE-${Date.now()}`,
         accept_extended_distance: acceptExtended,
+        tip_amount: tipAmount,
       });
       const order = res.data.data;
       clearCart();
@@ -68,6 +92,8 @@ export default function CartScreen({ navigation }) {
       </View>
     );
   }
+
+  const tipOptions = [0.10, 0.15, 0.20];
 
   return (
     <View style={styles.container}>
@@ -106,6 +132,55 @@ export default function CartScreen({ navigation }) {
         <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
           Delivery fee and sales tax are calculated automatically at checkout.
         </Text>
+
+        <View style={styles.tipRow}>
+          <Text style={{ color: colors.textDim, marginBottom: 8 }}>Add a tip</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {tipOptions.map((pct) => {
+              const amt = Math.round(subtotal * pct * 100) / 100;
+              const selected = !useCustomTip && tipAmount === amt;
+              return (
+                <TouchableOpacity
+                  key={pct}
+                  style={[styles.tipButton, selected && styles.tipButtonSelected]}
+                  onPress={() => selectPresetTip(amt)}
+                >
+                  <Text style={{ color: selected ? colors.liveText : colors.text }}>
+                    {Math.round(pct * 100)}% ({formatUSD(amt)})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[styles.tipButton, !useCustomTip && tipAmount === 0 && styles.tipButtonSelected]}
+              onPress={() => selectPresetTip(0)}
+            >
+              <Text style={{ color: !useCustomTip && tipAmount === 0 ? colors.liveText : colors.text }}>No tip</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tipButton, useCustomTip && styles.tipButtonSelected]}
+              onPress={selectCustomTip}
+            >
+              <Text style={{ color: useCustomTip ? colors.liveText : colors.text }}>Custom</Text>
+            </TouchableOpacity>
+          </View>
+
+          {useCustomTip && (
+            <View style={styles.customTipRow}>
+              <Text style={{ color: colors.text, marginRight: 6 }}>$</Text>
+              <TextInput
+                value={customTip}
+                onChangeText={onCustomTipChange}
+                placeholder="0.00"
+                placeholderTextColor={colors.textDim}
+                keyboardType="decimal-pad"
+                style={styles.customTipInput}
+                autoFocus
+              />
+            </View>
+          )}
+        </View>
+
         <TouchableOpacity
           style={[styles.primaryButton, deliveryLat == null && { opacity: 0.5 }]}
           onPress={() => placeOrder(false)}
@@ -127,6 +202,15 @@ const styles = StyleSheet.create({
   },
   footer: { padding: 16, borderTopWidth: 1, borderTopColor: colors.border },
   subtotalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  tipRow: { marginBottom: 12 },
+  tipButton: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10 },
+  tipButtonSelected: { backgroundColor: colors.live, borderColor: colors.live },
+  customTipRow: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 10,
+    borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start',
+  },
+  customTipInput: { color: colors.text, minWidth: 80, fontSize: 15, padding: 0 },
   primaryButton: { backgroundColor: colors.live, borderRadius: 10, padding: 16, alignItems: 'center' },
   primaryButtonText: { color: colors.liveText, fontWeight: '700', fontSize: 15 },
   error: { color: colors.danger, padding: 12 },
