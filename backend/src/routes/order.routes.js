@@ -22,7 +22,7 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
     const {
       seller_id, items, delivery_address, delivery_lat, delivery_lng,
       customer_notes, special_instructions, payment_method, processor_ref,
-      accept_extended_distance,
+      accept_extended_distance, tip_amount,
     } = req.body;
 
     if (!seller_id || !Array.isArray(items) || items.length === 0) {
@@ -34,6 +34,9 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
     if (!payment_method || !processor_ref) {
       return res.status(400).json({ error: 'payment_method and processor_ref are required' });
     }
+
+    // Validate tip_amount if provided
+    const tipAmount = tip_amount !== undefined ? Math.max(0, parseFloat(tip_amount) || 0) : 0;
 
     await client.query('BEGIN');
 
@@ -127,14 +130,17 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
       platformMargin: surchargePlatformMargin,
     } = calculateSurcharge(heaviestWeightClass);
     const { serviceFee } = calculateServiceFee(subtotal);
+    // Tax is calculated on subtotal only, NOT including tip (tips are typically not taxable)
     const { tax, taxRate } = calculateTax(subtotal, seller.sales_tax_rate ?? undefined);
     const estimatedDeliveryMinutes = estimateDeliveryMinutes(
       distance,
       requiredVehicleType || 'motorcycle',
       seller.avg_prep_time
     );
-    const totalDriverEarnings = driverEarnings + surchargeDriverEarnings;
-    const totalAmount = subtotal + deliveryFee + bulkSurcharge + serviceFee + tax;
+    // Driver earnings include: delivery fee share + surcharge share + 100% of tip
+    const totalDriverEarnings = driverEarnings + surchargeDriverEarnings + tipAmount;
+    // Total amount includes all components: subtotal + delivery_fee + bulk_surcharge + service_fee + tax + tip
+    const totalAmount = subtotal + deliveryFee + bulkSurcharge + serviceFee + tax + tipAmount;
 
     const orderResult = await client.query(
       `INSERT INTO orders (
@@ -142,8 +148,8 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
         bulk_surcharge, surcharge_driver_earnings, surcharge_platform_margin,
         tax_amount, tax_rate, commission_amount, platform_delivery_margin, driver_earnings, seller_earnings, total_amount,
         distance_mi, is_extended_distance, estimated_prep_time, estimated_delivery_minutes,
-        delivery_address, delivery_lat, delivery_lng, customer_notes, special_instructions, placed_at
-      ) VALUES ($1,$2,'placed',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25, NOW())
+        delivery_address, delivery_lat, delivery_lng, customer_notes, special_instructions, tip_amount, placed_at
+      ) VALUES ($1,$2,'placed',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26, NOW())
       RETURNING *`,
       [
         req.user.id, seller_id, requiredVehicleType, subtotal, deliveryFee, serviceFee,
@@ -151,6 +157,7 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
         tax, taxRate, commission, platformMargin, totalDriverEarnings, sellerEarnings, totalAmount,
         distance, isExtendedDistance, seller.avg_prep_time, estimatedDeliveryMinutes,
         JSON.stringify(delivery_address), delivery_lat, delivery_lng, customer_notes || null, special_instructions || null,
+        tipAmount,
       ]
     );
     const order = orderResult.rows[0];
@@ -351,9 +358,16 @@ router.post('/:id/tip', authMiddleware, async (req, res, next) => {
       return res.status(409).json({ error: 'Tips can only be added once the order is delivered' });
     }
 
+    // Update tip_amount and recalculate total_amount and driver_earnings
+    const updatedTipAmount = Math.max(0, parseFloat(amount) || 0);
+    const previousTipAmount = order.tip_amount || 0;
+    const tipDifference = updatedTipAmount - previousTipAmount;
+    const newTotalAmount = order.total_amount + tipDifference;
+    const newDriverEarnings = order.driver_earnings + tipDifference;
+
     const result = await pool.query(
-      `UPDATE orders SET tip_amount = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [amount, id]
+      `UPDATE orders SET tip_amount = $1, driver_earnings = $2, total_amount = $3, updated_at = NOW() WHERE id = $4 RETURNING *`,
+      [updatedTipAmount, newDriverEarnings, newTotalAmount, id]
     );
 
     // NOTE: this updates the order record only. If your original payment
@@ -368,3 +382,4 @@ router.post('/:id/tip', authMiddleware, async (req, res, next) => {
 });
 
 module.exports = router;
+
