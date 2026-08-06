@@ -45,7 +45,7 @@ router.post('/register', async (req, res, next) => {
     const {
       phone, otp, password, role, email, date_of_birth,
       business_name, category, vehicle_type, address, lat, lng,
-      image_url, agreed_to_tos,
+      image_url, business_license_url, id_document_url, agreed_to_tos,
     } = req.body;
 
     if (!phone || !otp || !password) {
@@ -105,9 +105,9 @@ router.post('/register', async (req, res, next) => {
         return res.status(400).json({ error: 'You must agree to the Terms of Service' });
       }
       await pool.query(
-       `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, image_url, agreed_to_tos, agreed_to_tos_at, verification_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), 'pending')`,
-        [user.id, business_name, category || 'restaurant', address, lat, lng, image_url || null, true]
+       `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, image_url, business_license_url, id_document_url, agreed_to_tos, agreed_to_tos_at, verification_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 'pending')`,
+        [user.id, business_name, category || 'restaurant', address, lat, lng, image_url || null, business_license_url || null, id_document_url || null, true]
       );
     } else if (role === 'driver') {
       if (!vehicle_type) {
@@ -141,7 +141,8 @@ router.post('/register', async (req, res, next) => {
 
 // Login
 router.post('/login', async (req, res, next) => {
-  try {const { phone, password } = req.body;
+  try {
+    const { phone, password } = req.body;
     if (!phone || !password) {
       return res.status(400).json({ error: 'Phone and password are required' });
     }
@@ -179,7 +180,6 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-
 // Get profile
 router.get('/profile', authMiddleware, async (req, res, next) => {
   try {
@@ -204,4 +204,3 @@ router.get('/profile', authMiddleware, async (req, res, next) => {
 });
 
 module.exports = router;
-
