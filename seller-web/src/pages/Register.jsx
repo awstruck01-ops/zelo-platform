@@ -18,6 +18,10 @@ export default function Register() {
   const [locating, setLocating] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [businessLicenseUrl, setBusinessLicenseUrl] = useState('');
+  const [uploadingLicense, setUploadingLicense] = useState(false);
+  const [idDocumentUrl, setIdDocumentUrl] = useState('');
+  const [uploadingId, setUploadingId] = useState(false);
   const [agreedToTos, setAgreedToTos] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [category, setCategory] = useState('restaurant');
@@ -27,32 +31,50 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploading(true);
+  // Generic uploader used by storefront media, business license, and ID document.
+  // resourceType controls whether Cloudinary treats the file as an image or video.
+  const uploadFile = async (file, resourceType, setUrl, setBusy) => {
+    setBusy(true);
     setError('');
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('upload_preset', UPLOAD_PRESET);
 
-      const resourceType = mediaType === 'video' ? 'video' : 'image';
       const res = await fetch(
         `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
         { method: 'POST', body: formData }
       );
       const data = await res.json();
       if (data.secure_url) {
-        setImageUrl(data.secure_url);
+        setUrl(data.secure_url);
       } else {
         setError('Upload failed. Please try again.');
       }
     } catch (err) {
       setError('Upload failed. Please try again.');
     } finally {
-      setUploading(false);
+      setBusy(false);
     }
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const resourceType = mediaType === 'video' ? 'video' : 'image';
+    uploadFile(file, resourceType, setImageUrl, setUploading);
+  };
+
+  const handleLicenseUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadFile(file, 'image', setBusinessLicenseUrl, setUploadingLicense);
+  };
+
+  const handleIdUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadFile(file, 'image', setIdDocumentUrl, setUploadingId);
   };
 
   const useCurrentLocation = () => {
@@ -85,6 +107,14 @@ export default function Register() {
     }
     if (lat === null || lng === null) {
       setError('Please set your business location before continuing.');
+      return;
+    }
+    if (!businessLicenseUrl) {
+      setError('Please upload your business license.');
+      return;
+    }
+    if (!idDocumentUrl) {
+      setError('Please upload a government-issued ID for the business owner.');
       return;
     }
     if (!agreedToTos) {
@@ -126,6 +156,8 @@ export default function Register() {
         lat,
         lng,
         image_url: imageUrl || null,
+        business_license_url: businessLicenseUrl || null,
+        id_document_url: idDocumentUrl || null,
         agreed_to_tos: true,
       });
       navigate('/login');
@@ -306,6 +338,50 @@ export default function Register() {
             </div>
 
             <div className="field">
+              <label>Business license</label>
+              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+                Upload a clear photo of your business license or registration document.
+              </p>
+              <input
+                id="businessLicense"
+                type="file"
+                accept="image/*"
+                onChange={handleLicenseUpload}
+                disabled={uploadingLicense}
+              />
+              {uploadingLicense && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {businessLicenseUrl && (
+                <img
+                  src={businessLicenseUrl}
+                  alt="Business license preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
+              <label>Owner government ID</label>
+              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+                Upload a driver's license, state ID, or passport for the business owner.
+              </p>
+              <input
+                id="idDocument"
+                type="file"
+                accept="image/*"
+                onChange={handleIdUpload}
+                disabled={uploadingId}
+              />
+              {uploadingId && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {idDocumentUrl && (
+                <img
+                  src={idDocumentUrl}
+                  alt="ID document preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
               <label>Seller Agreement</label>
               <button
                 type="button"
@@ -325,7 +401,7 @@ export default function Register() {
               type="submit"
               className="primary"
               style={{ width: '100%', marginTop: 8 }}
-              disabled={loading || uploading}
+              disabled={loading || uploading || uploadingLicense || uploadingId}
             >
               {loading ? 'Sending code...' : 'Continue'}
             </button>
