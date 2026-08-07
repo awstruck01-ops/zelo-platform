@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 
+const CLOUD_NAME = 'jwv51r23';
+const UPLOAD_PRESET = 'zelo_unsigned';
+
 const formatUSD = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function Earnings() {
@@ -19,6 +22,16 @@ export default function Earnings() {
   const [selectedBankId, setSelectedBankId] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Tax form state
+  const [taxStatus, setTaxStatus] = useState(null); // { current_version, submission_for_current_version, needs_submission }
+  const [taxForm, setTaxForm] = useState({
+    legal_name: '', business_name: '', tax_classification: 'individual',
+    address: '', city: '', state: '', zip: '',
+  });
+  const [taxBusy, setTaxBusy] = useState(false);
+  const [taxError, setTaxError] = useState('');
+  const [uploadingSigned, setUploadingSigned] = useState(false);
+
   const load = () => {
     if (!sellerId) return;
     api.get(`/sellers/${sellerId}/earnings`).then((res) => setEarnings(res.data.data)).catch(() => {});
@@ -32,7 +45,13 @@ export default function Earnings() {
     }).catch(() => {});
   };
 
-  useEffect(() => { load(); }, [sellerId]);
+  const loadTaxStatus = () => {
+    api.get('/sellers/me/tax-form/current')
+      .then((res) => setTaxStatus(res.data.data))
+      .catch((err) => setTaxError(err.response?.data?.error || 'Failed to load tax form status'));
+  };
+
+  useEffect(() => { load(); loadTaxStatus(); }, [sellerId]);
 
   const addBank = async (e) => {
     e.preventDefault();
@@ -70,6 +89,54 @@ export default function Earnings() {
     }
   };
 
+  const submitTaxForm = async (e) => {
+    e.preventDefault();
+    setTaxBusy(true);
+    setTaxError('');
+    try {
+      await api.post('/sellers/me/tax-form/submit', taxForm);
+      loadTaxStatus();
+    } catch (err) {
+      setTaxError(err.response?.data?.error || 'Failed to submit tax form');
+    } finally {
+      setTaxBusy(false);
+    }
+  };
+
+  const uploadSignedCopy = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const submissionId = taxStatus?.submission_for_current_version?.id;
+    if (!submissionId) return;
+
+    setUploadingSigned(true);
+    setTaxError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`,
+        { method: 'POST', body: formData }
+      );
+      const data = await res.json();
+      if (!data.secure_url) {
+        setTaxError('Upload failed. Please try again.');
+        return;
+      }
+      await api.patch(`/sellers/me/tax-form/${submissionId}/attach-signed`, {
+        signed_pdf_url: data.secure_url,
+      });
+      loadTaxStatus();
+    } catch (err) {
+      setTaxError('Upload failed. Please try again.');
+    } finally {
+      setUploadingSigned(false);
+    }
+  };
+
+  const submission = taxStatus?.submission_for_current_version;
+
   return (
     <>
       <div className="page-header">
@@ -98,6 +165,89 @@ export default function Earnings() {
         <div className="stat-card">
           <div className="label">Completed orders</div>
           <div className="value">{earnings?.completed_orders ?? 0}</div>
+        </div>
+      </div>
+
+      <div className="panel" id="tax-info">
+        <div className="panel-header"><h2>Tax information</h2></div>
+        <div style={{ padding: 20 }}>
+          {taxError && <div className="error-banner">{taxError}</div>}
+
+          {!taxStatus ? (
+            <p style={{ color: 'var(--text-dim)', fontSize: 13 }}>Loading…</p>
+          ) : !taxStatus.current_version ? (
+            <p style={{ color: 'var(--text-dim)', fontSize: 13 }}>No tax form is currently required.</p>
+          ) : !submission ? (
+            <form onSubmit={submitTaxForm} style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
+              <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 0 }}>
+                Fill in the details below to generate a prefilled W-9. You'll download it,
+                add your SSN/EIN and signature by hand, then upload the completed copy —
+                your tax ID is never entered on this site.
+              </p>
+              <div className="field">
+                <label>Legal name</label>
+                <input required value={taxForm.legal_name} onChange={(e) => setTaxForm({ ...taxForm, legal_name: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>Business name (if different)</label>
+                <input value={taxForm.business_name} onChange={(e) => setTaxForm({ ...taxForm, business_name: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>Tax classification</label>
+                <select value={taxForm.tax_classification} onChange={(e) => setTaxForm({ ...taxForm, tax_classification: e.target.value })}>
+                  <option value="individual">Individual / Sole proprietor</option>
+                  <option value="c_corp">C corporation</option>
+                  <option value="s_corp">S corporation</option>
+                  <option value="partnership">Partnership</option>
+                  <option value="trust_estate">Trust / Estate</option>
+                  <option value="llc">LLC</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Address</label>
+                <input required value={taxForm.address} onChange={(e) => setTaxForm({ ...taxForm, address: e.target.value })} />
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>City</label>
+                  <input required value={taxForm.city} onChange={(e) => setTaxForm({ ...taxForm, city: e.target.value })} />
+                </div>
+                <div className="field" style={{ width: 90 }}>
+                  <label>State</label>
+                  <input required value={taxForm.state} onChange={(e) => setTaxForm({ ...taxForm, state: e.target.value })} />
+                </div>
+                <div className="field" style={{ width: 110 }}>
+                  <label>ZIP</label>
+                  <input required value={taxForm.zip} onChange={(e) => setTaxForm({ ...taxForm, zip: e.target.value })} />
+                </div>
+              </div>
+              <button type="submit" className="primary" disabled={taxBusy} style={{ alignSelf: 'flex-start' }}>
+                {taxBusy ? 'Submitting…' : 'Generate prefilled W-9'}
+              </button>
+            </form>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
+              <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 0 }}>
+                Your details are on file. Download your prefilled W-9, fill in your SSN/EIN
+                and signature by hand, then upload the completed copy below.
+              </p>
+              {submission.prefilled_pdf_url && (
+                <a href={submission.prefilled_pdf_url} target="_blank" rel="noreferrer" className="primary" style={{ display: 'inline-block', width: 'fit-content', padding: '10px 16px', borderRadius: 8, textDecoration: 'none' }}>
+                  Download prefilled W-9
+                </a>
+              )}
+              {submission.signed_pdf_url ? (
+                <p style={{ color: 'var(--accent-live)', fontSize: 13 }}>✅ Signed copy uploaded</p>
+              ) : (
+                <div className="field">
+                  <label>Upload signed copy</label>
+                  <input type="file" accept="application/pdf,image/*" onChange={uploadSignedCopy} disabled={uploadingSigned} />
+                  {uploadingSigned && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
