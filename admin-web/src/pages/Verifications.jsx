@@ -1,18 +1,59 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 
+function DocThumb({ url, label, onOpen }) {
+  if (!url) {
+    return (
+      <div style={{ fontSize: 12, opacity: 0.5, width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed #444', borderRadius: 6 }}>
+        None
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={label}
+      onClick={() => onOpen(url, label)}
+      style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'cover', cursor: 'pointer', border: '1px solid #333' }}
+    />
+  );
+}
+
+function Lightbox({ doc, onClose }) {
+  if (!doc) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, cursor: 'zoom-out', padding: 24,
+      }}
+    >
+      <div style={{ color: '#fff', marginBottom: 12, fontSize: 14, opacity: 0.85 }}>{doc.label} — click anywhere to close</div>
+      <img
+        src={doc.url}
+        alt={doc.label}
+        style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }}
+      />
+    </div>
+  );
+}
+
 export default function Verifications() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [lightboxDoc, setLightboxDoc] = useState(null);
 
   const load = () => {
     api.get('/admin/verifications/pending')
       .then((res) => setData(res.data.data))
       .catch((err) => setError(err.response?.data?.error || 'Failed to load'));
   };
-
   useEffect(() => { load(); }, []);
+
+  const openDoc = (url, label) => setLightboxDoc({ url, label });
 
   const decide = async (kind, id, status) => {
     setBusyId(id);
@@ -34,7 +75,6 @@ export default function Verifications() {
           <p>Review documents before a seller or driver goes live</p>
         </div>
       </div>
-
       {error && <div className="error-banner">{error}</div>}
 
       <div className="panel">
@@ -43,18 +83,25 @@ export default function Verifications() {
           <div className="empty-state">Nothing to review.</div>
         ) : (
           <table>
-            <thead><tr><th>Photo</th><th>Business</th><th>Category</th><th>Phone</th><th>Address</th><th /></tr></thead>
+            <thead>
+              <tr>
+                <th>Storefront</th>
+                <th>Business License</th>
+                <th>Owner ID</th>
+                <th>Business</th>
+                <th>Category</th>
+                <th>Phone</th>
+                <th>Address</th>
+                <th />
+              </tr>
+            </thead>
             <tbody>
               {data?.sellers.map((s) => (
                 <tr key={s.id}>
-                 <td>
-                {s.image_url ? (
-                  <img src={s.image_url} alt={s.business_name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: 48, height: 48, borderRadius: 6, background: '#eee' }} />
-                )}
-              </td>
-              <td>{s.business_name}</td>
+                  <td><DocThumb url={s.image_url} label={`${s.business_name} — Storefront`} onOpen={openDoc} /></td>
+                  <td><DocThumb url={s.business_license_url} label={`${s.business_name} — Business License`} onOpen={openDoc} /></td>
+                  <td><DocThumb url={s.id_document_url} label={`${s.business_name} — Owner ID`} onOpen={openDoc} /></td>
+                  <td>{s.business_name}</td>
                   <td style={{ textTransform: 'capitalize' }}>{s.category}</td>
                   <td className="mono">{s.phone}</td>
                   <td>{s.address}</td>
@@ -75,11 +122,22 @@ export default function Verifications() {
           <div className="empty-state">Nothing to review.</div>
         ) : (
           <table>
-            <thead><tr><th>Vehicle</th><th>Phone</th><th />
-            </tr></thead>
+            <thead>
+              <tr>
+                <th>ID Document</th>
+                <th>License</th>
+                <th>Vehicle Doc</th>
+                <th>Vehicle</th>
+                <th>Phone</th>
+                <th />
+              </tr>
+            </thead>
             <tbody>
               {data?.drivers.map((d) => (
                 <tr key={d.id}>
+                  <td><DocThumb url={d.id_document_url} label={`${d.phone} — ID Document`} onOpen={openDoc} /></td>
+                  <td><DocThumb url={d.license_url} label={`${d.phone} — License`} onOpen={openDoc} /></td>
+                  <td><DocThumb url={d.vehicle_doc_url} label={`${d.phone} — Vehicle Doc`} onOpen={openDoc} /></td>
                   <td style={{ textTransform: 'capitalize' }}>{d.vehicle_type}</td>
                   <td className="mono">{d.phone}</td>
                   <td style={{ display: 'flex', gap: 8 }}>
@@ -92,6 +150,8 @@ export default function Verifications() {
           </table>
         )}
       </div>
+
+      <Lightbox doc={lightboxDoc} onClose={() => setLightboxDoc(null)} />
     </>
   );
 }
