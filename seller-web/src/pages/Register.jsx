@@ -20,6 +20,8 @@ export default function Register() {
   const [uploading, setUploading] = useState(false);
   const [businessLicenseUrl, setBusinessLicenseUrl] = useState('');
   const [uploadingLicense, setUploadingLicense] = useState(false);
+  const [businessLicenseBackUrl, setBusinessLicenseBackUrl] = useState('');
+  const [uploadingLicenseBack, setUploadingLicenseBack] = useState(false);
   const [idDocumentUrl, setIdDocumentUrl] = useState('');
   const [uploadingId, setUploadingId] = useState(false);
   const [agreedToTos, setAgreedToTos] = useState(false);
@@ -31,7 +33,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Generic uploader used by storefront media, business license, and ID document.
+  // Generic uploader used by storefront media, business license (front/back), and ID document.
   // resourceType controls whether Cloudinary treats the file as an image or video.
   const uploadFile = async (file, resourceType, setUrl, setBusy) => {
     setBusy(true);
@@ -69,6 +71,12 @@ export default function Register() {
     const file = e.target.files[0];
     if (!file) return;
     uploadFile(file, 'image', setBusinessLicenseUrl, setUploadingLicense);
+  };
+
+  const handleLicenseBackUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadFile(file, 'image', setBusinessLicenseBackUrl, setUploadingLicenseBack);
   };
 
   const handleIdUpload = (e) => {
@@ -110,7 +118,11 @@ export default function Register() {
       return;
     }
     if (!businessLicenseUrl) {
-      setError('Please upload your business license.');
+      setError('Please upload the front of your business license.');
+      return;
+    }
+    if (!businessLicenseBackUrl) {
+      setError('Please upload the back of your business license.');
       return;
     }
     if (!idDocumentUrl) {
@@ -157,6 +169,7 @@ export default function Register() {
         lng,
         image_url: imageUrl || null,
         business_license_url: businessLicenseUrl || null,
+        business_license_back_url: businessLicenseBackUrl || null,
         id_document_url: idDocumentUrl || null,
         agreed_to_tos: true,
       });
@@ -338,9 +351,9 @@ export default function Register() {
             </div>
 
             <div className="field">
-              <label>Business license</label>
+              <label>Business license (front)</label>
               <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
-                Upload a clear photo of your business license or registration document.
+                Upload a clear photo of the front of your business license or registration document.
               </p>
               <input
                 id="businessLicense"
@@ -353,7 +366,29 @@ export default function Register() {
               {businessLicenseUrl && (
                 <img
                   src={businessLicenseUrl}
-                  alt="Business license preview"
+                  alt="Business license front preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
+              <label>Business license (back)</label>
+              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+                Upload a clear photo of the back of your business license or registration document.
+              </p>
+              <input
+                id="businessLicenseBack"
+                type="file"
+                accept="image/*"
+                onChange={handleLicenseBackUpload}
+                disabled={uploadingLicenseBack}
+              />
+              {uploadingLicenseBack && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {businessLicenseBackUrl && (
+                <img
+                  src={businessLicenseBackUrl}
+                  alt="Business license back preview"
                   style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
                 />
               )}
@@ -401,7 +436,7 @@ export default function Register() {
               type="submit"
               className="primary"
               style={{ width: '100%', marginTop: 8 }}
-              disabled={loading || uploading || uploadingLicense || uploadingId}
+              disabled={loading || uploading || uploadingLicense || uploadingLicenseBack || uploadingId}
             >
               {loading ? 'Sending code...' : 'Continue'}
             </button>
