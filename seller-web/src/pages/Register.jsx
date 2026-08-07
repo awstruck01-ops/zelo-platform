@@ -20,10 +20,10 @@ export default function Register() {
   const [uploading, setUploading] = useState(false);
   const [businessLicenseUrl, setBusinessLicenseUrl] = useState('');
   const [uploadingLicense, setUploadingLicense] = useState(false);
-  const [businessLicenseBackUrl, setBusinessLicenseBackUrl] = useState('');
-  const [uploadingLicenseBack, setUploadingLicenseBack] = useState(false);
   const [idDocumentUrl, setIdDocumentUrl] = useState('');
   const [uploadingId, setUploadingId] = useState(false);
+  const [idDocumentBackUrl, setIdDocumentBackUrl] = useState('');
+  const [uploadingIdBack, setUploadingIdBack] = useState(false);
   const [agreedToTos, setAgreedToTos] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [category, setCategory] = useState('restaurant');
@@ -33,7 +33,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Generic uploader used by storefront media, business license (front/back), and ID document.
+  // Generic uploader used by storefront media, business license, and ID document (front/back).
   // resourceType controls whether Cloudinary treats the file as an image or video.
   const uploadFile = async (file, resourceType, setUrl, setBusy) => {
     setBusy(true);
@@ -73,16 +73,16 @@ export default function Register() {
     uploadFile(file, 'image', setBusinessLicenseUrl, setUploadingLicense);
   };
 
-  const handleLicenseBackUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    uploadFile(file, 'image', setBusinessLicenseBackUrl, setUploadingLicenseBack);
-  };
-
   const handleIdUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     uploadFile(file, 'image', setIdDocumentUrl, setUploadingId);
+  };
+
+  const handleIdBackUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadFile(file, 'image', setIdDocumentBackUrl, setUploadingIdBack);
   };
 
   const useCurrentLocation = () => {
@@ -118,15 +118,15 @@ export default function Register() {
       return;
     }
     if (!businessLicenseUrl) {
-      setError('Please upload the front of your business license.');
-      return;
-    }
-    if (!businessLicenseBackUrl) {
-      setError('Please upload the back of your business license.');
+      setError('Please upload your business license.');
       return;
     }
     if (!idDocumentUrl) {
-      setError('Please upload a government-issued ID for the business owner.');
+      setError('Please upload the front of a government-issued ID for the business owner.');
+      return;
+    }
+    if (!idDocumentBackUrl) {
+      setError('Please upload the back of the government-issued ID for the business owner.');
       return;
     }
     if (!agreedToTos) {
@@ -169,8 +169,8 @@ export default function Register() {
         lng,
         image_url: imageUrl || null,
         business_license_url: businessLicenseUrl || null,
-        business_license_back_url: businessLicenseBackUrl || null,
         id_document_url: idDocumentUrl || null,
+        id_document_back_url: idDocumentBackUrl || null,
         agreed_to_tos: true,
       });
       navigate('/login');
@@ -351,9 +351,9 @@ export default function Register() {
             </div>
 
             <div className="field">
-              <label>Business license (front)</label>
+              <label>Business license</label>
               <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
-                Upload a clear photo of the front of your business license or registration document.
+                Upload a clear photo of your business license or registration document.
               </p>
               <input
                 id="businessLicense"
@@ -366,36 +366,14 @@ export default function Register() {
               {businessLicenseUrl && (
                 <img
                   src={businessLicenseUrl}
-                  alt="Business license front preview"
+                  alt="Business license preview"
                   style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
                 />
               )}
             </div>
 
             <div className="field">
-              <label>Business license (back)</label>
-              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
-                Upload a clear photo of the back of your business license or registration document.
-              </p>
-              <input
-                id="businessLicenseBack"
-                type="file"
-                accept="image/*"
-                onChange={handleLicenseBackUpload}
-                disabled={uploadingLicenseBack}
-              />
-              {uploadingLicenseBack && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
-              {businessLicenseBackUrl && (
-                <img
-                  src={businessLicenseBackUrl}
-                  alt="Business license back preview"
-                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
-                />
-              )}
-            </div>
-
-            <div className="field">
-              <label>Owner government ID</label>
+              <label>Owner government ID (front)</label>
               <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
                 Upload a driver's license, state ID, or passport for the business owner.
               </p>
@@ -410,7 +388,29 @@ export default function Register() {
               {idDocumentUrl && (
                 <img
                   src={idDocumentUrl}
-                  alt="ID document preview"
+                  alt="ID document front preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
+              <label>Owner government ID (back)</label>
+              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+                Upload the back of the same ID (skip this if using a passport).
+              </p>
+              <input
+                id="idDocumentBack"
+                type="file"
+                accept="image/*"
+                onChange={handleIdBackUpload}
+                disabled={uploadingIdBack}
+              />
+              {uploadingIdBack && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {idDocumentBackUrl && (
+                <img
+                  src={idDocumentBackUrl}
+                  alt="ID document back preview"
                   style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
                 />
               )}
@@ -436,7 +436,7 @@ export default function Register() {
               type="submit"
               className="primary"
               style={{ width: '100%', marginTop: 8 }}
-              disabled={loading || uploading || uploadingLicense || uploadingLicenseBack || uploadingId}
+              disabled={loading || uploading || uploadingLicense || uploadingId || uploadingIdBack}
             >
               {loading ? 'Sending code...' : 'Continue'}
             </button>
