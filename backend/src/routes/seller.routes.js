@@ -2,6 +2,8 @@ const express = require('express');
 const pool = require('../config/db');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { getOrCreateWallet } = require('../utils/wallet');
+const { prefillW9 } = require('../utils/prefillW9');
+const { v2: cloudinary } = require('cloudinary');
 
 const router = express.Router();
 
@@ -292,6 +294,11 @@ router.get('/me/tax-form/current', authMiddleware, roleMiddleware(['seller']), a
   }
 });
 
+// Submit the non-sensitive tax-form fields and generate a prefilled copy of
+// the real W-9 for the seller to download. Deliberately does NOT collect
+// tax_id or signature_name here — the seller fills those directly into the
+// downloaded PDF themselves (see /me/tax-form/:id/attach-signed below), so
+// their SSN/EIN never passes through our form or gets stored as raw text.
 router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
   try {
     const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
@@ -300,11 +307,11 @@ router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['seller']), a
 
     const {
       legal_name, business_name, tax_classification,
-      address, city, state, zip, tax_id, signature_name,
+      address, city, state, zip,
     } = req.body;
 
-    if (!legal_name || !tax_classification || !address || !city || !state || !zip || !tax_id || !signature_name) {
-      return res.status(400).json({ error: 'legal_name, tax_classification, address, city, state, zip, tax_id, and signature_name are required' });
+    if (!legal_name || !tax_classification || !address || !city || !state || !zip) {
+      return res.status(400).json({ error: 'legal_name, tax_classification, address, city, state, and zip are required' });
     }
 
     const versionResult = await pool.query('SELECT * FROM tax_form_versions WHERE is_current = TRUE LIMIT 1');
@@ -316,13 +323,59 @@ router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['seller']), a
     const result = await pool.query(
       `INSERT INTO seller_tax_submissions (
         seller_id, tax_form_version_id, legal_name, business_name, tax_classification,
-        address, city, state, zip, tax_id, signature_name
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [sellerId, currentVersion.id, legal_name, business_name || null, tax_classification,
-        address, city, state, zip, tax_id, signature_name]
+        address, city, state, zip
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [sellerId, currentVersion.id, legal_name, business_name || null, tax_classification, address, city, state, zip]
     );
+    const submission = result.rows[0];
 
-    res.status(201).json({ success: true, data: result.rows[0] });
+    // Best-effort: if PDF generation fails, the submission itself is still
+    // saved — just without a prefilled copy to download yet.
+    try {
+      const pdfBuffer = await prefillW9(submission);
+      const uploadResult = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'zelo/tax-forms', resource_type: 'raw', format: 'pdf' },
+          (error, uploadRes) => (error ? reject(error) : resolve(uploadRes))
+        );
+        stream.end(pdfBuffer);
+      });
+
+      const updated = await pool.query(
+        'UPDATE seller_tax_submissions SET prefilled_pdf_url = $1 WHERE id = $2 RETURNING *',
+        [uploadResult.secure_url, submission.id]
+      );
+      return res.status(201).json({ success: true, data: updated.rows[0] });
+    } catch (pdfError) {
+      console.error('W-9 prefill generation failed:', pdfError);
+      return res.status(201).json({ success: true, data: submission });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Seller uploads their own completed & signed copy (SSN/EIN + signature
+// filled in on their end, via the existing /upload endpoint) and calls this
+// with the resulting URL to attach it to their submission.
+router.patch('/me/tax-form/:id/attach-signed', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
+    if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    const sellerId = sellerResult.rows[0].id;
+
+    const { id } = req.params;
+    const { signed_pdf_url } = req.body;
+    if (!signed_pdf_url) return res.status(400).json({ error: 'signed_pdf_url is required' });
+
+    const result = await pool.query(
+      `UPDATE seller_tax_submissions SET signed_pdf_url = $1
+       WHERE id = $2 AND seller_id = $3 RETURNING *`,
+      [signed_pdf_url, id, sellerId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Submission not found' });
+
+    res.json({ success: true, data: result.rows[0] });
   } catch (error) {
     next(error);
   }
