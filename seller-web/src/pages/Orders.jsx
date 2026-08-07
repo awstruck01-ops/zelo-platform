@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api';
 import OrderRail from '../components/OrderRail';
 
@@ -16,6 +17,7 @@ export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [needsTaxForm, setNeedsTaxForm] = useState(false);
 
   const load = () => {
     api.get('/orders')
@@ -25,6 +27,9 @@ export default function Orders() {
 
   useEffect(() => {
     load();
+    api.get('/sellers/me/tax-form/current')
+      .then((res) => setNeedsTaxForm(!!res.data.data.needs_submission))
+      .catch(() => {});
     const interval = setInterval(load, 6000);
     return () => clearInterval(interval);
   }, []);
@@ -55,6 +60,15 @@ export default function Orders() {
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {needsTaxForm && (
+        <div className="pill pending" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
+          <span>Tax information needed before you can be paid out.</span>
+          <Link to="/earnings#tax-info" className="primary" style={{ padding: '6px 14px', borderRadius: 6, textDecoration: 'none' }}>
+            Complete tax form
+          </Link>
+        </div>
+      )}
 
       <div className="panel">
         <div className="panel-header"><h2>Needs your action ({incoming.length})</h2></div>
