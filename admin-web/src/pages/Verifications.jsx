@@ -1,157 +1,484 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import api from '../api';
+import PolicyModal from '../components/PolicyModal';
 
-function DocThumb({ url, label, onOpen }) {
-  if (!url) {
-    return (
-      <div style={{ fontSize: 12, opacity: 0.5, width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed #444', borderRadius: 6 }}>
-        None
-      </div>
-    );
-  }
-  return (
-    <img
-      src={url}
-      alt={label}
-      onClick={() => onOpen(url, label)}
-      style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'cover', cursor: 'pointer', border: '1px solid #333' }}
-    />
-  );
-}
+const CLOUD_NAME = 'jwv51r23';
+const UPLOAD_PRESET = 'zelo_unsigned';
 
-function Lightbox({ doc, onClose }) {
-  if (!doc) return null;
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1000, cursor: 'zoom-out', padding: 24,
-      }}
-    >
-      <div style={{ color: '#fff', marginBottom: 12, fontSize: 14, opacity: 0.85 }}>{doc.label} — click anywhere to close</div>
-      <img
-        src={doc.url}
-        alt={doc.label}
-        style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }}
-      />
-    </div>
-  );
-}
-
-export default function Verifications() {
-  const [data, setData] = useState(null);
+export default function Register() {
+  const [step, setStep] = useState('details'); // 'details' | 'otp'
+  const [businessName, setBusinessName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [address, setAddress] = useState('');
+  const [lat, setLat] = useState(null);
+  const [lng, setLng] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [businessLicenseUrl, setBusinessLicenseUrl] = useState('');
+  const [uploadingLicense, setUploadingLicense] = useState(false);
+  const [idDocumentUrl, setIdDocumentUrl] = useState('');
+  const [uploadingId, setUploadingId] = useState(false);
+  const [idDocumentBackUrl, setIdDocumentBackUrl] = useState('');
+  const [uploadingIdBack, setUploadingIdBack] = useState(false);
+  const [agreedToTos, setAgreedToTos] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [category, setCategory] = useState('restaurant');
+  const [mediaType, setMediaType] = useState('photo'); // 'photo' | 'video'
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
-  const [busyId, setBusyId] = useState(null);
-  const [lightboxDoc, setLightboxDoc] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const load = () => {
-    api.get('/admin/verifications/pending')
-      .then((res) => setData(res.data.data))
-      .catch((err) => setError(err.response?.data?.error || 'Failed to load'));
-  };
-  useEffect(() => { load(); }, []);
-
-  const openDoc = (url, label) => setLightboxDoc({ url, label });
-
-  const decide = async (kind, id, status) => {
-    setBusyId(id);
+  // Generic uploader used by storefront media, business license, and ID document.
+  // resourceType controls whether Cloudinary treats the file as an image or video.
+  const uploadFile = async (file, resourceType, setUrl, setBusy) => {
+    setBusy(true);
+    setError('');
     try {
-      await api.patch(`/admin/${kind}/${id}/verify`, { status });
-      load();
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
+        { method: 'POST', body: formData }
+      );
+      const data = await res.json();
+      if (data.secure_url) {
+        setUrl(data.secure_url);
+      } else {
+        setError('Upload failed. Please try again.');
+      }
     } catch (err) {
-      setError(err.response?.data?.error || 'Action failed');
+      setError('Upload failed. Please try again.');
     } finally {
-      setBusyId(null);
+      setBusy(false);
+    }
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const resourceType = mediaType === 'video' ? 'video' : 'image';
+    uploadFile(file, resourceType, setImageUrl, setUploading);
+  };
+
+  const handleLicenseUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadFile(file, 'image', setBusinessLicenseUrl, setUploadingLicense);
+  };
+
+  const handleIdUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadFile(file, 'image', setIdDocumentUrl, setUploadingId);
+  };
+
+  const handleIdBackUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadFile(file, 'image', setIdDocumentBackUrl, setUploadingIdBack);
+  };
+
+  const useCurrentLocation = () => {
+    setError('');
+    if (!navigator.geolocation) {
+      setError('Location is not supported on this browser.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLat(position.coords.latitude);
+        setLng(position.coords.longitude);
+        setLocating(false);
+      },
+      () => {
+        setError('Could not get your location. Please allow location access and try again.');
+        setLocating(false);
+      }
+    );
+  };
+
+  const requestOtp = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!businessName || !phone || !password || !dateOfBirth || !address) {
+      setError('Please fill in all fields.');
+      return;
+    }
+    if (lat === null || lng === null) {
+      setError('Please set your business location before continuing.');
+      return;
+    }
+    if (!businessLicenseUrl) {
+      setError('Please upload your business license.');
+      return;
+    }
+    if (!idDocumentUrl) {
+      setError('Please upload the front of a government-issued ID for the business owner.');
+      return;
+    }
+    if (!idDocumentBackUrl) {
+      setError('Please upload the back of the government-issued ID for the business owner.');
+      return;
+    }
+    if (!agreedToTos) {
+      setError('You must agree to the Terms of Service to continue.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.post('/auth/send-otp', { phone });
+      setStep('otp');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!otp) {
+      setError('Please enter the code sent to your phone.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.post('/auth/register', {
+        role: 'seller',
+        phone,
+        otp,
+        password,
+        date_of_birth: dateOfBirth,
+        business_name: businessName,
+        category,
+        address,
+        lat,
+        lng,
+        image_url: imageUrl || null,
+        business_license_url: businessLicenseUrl || null,
+        id_document_url: idDocumentUrl || null,
+        id_document_back_url: idDocumentBackUrl || null,
+        agreed_to_tos: true,
+      });
+      navigate('/login');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>Verifications</h1>
-          <p>Review documents before a seller or driver goes live</p>
-        </div>
-      </div>
-      {error && <div className="error-banner">{error}</div>}
+    <div className="login-shell">
+      <div className="login-card">
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="/zelo-logo-horizontal.svg" alt="Zelo" style={{ height: 36 }} />
+          <span style={{ color: 'var(--accent-live)' }}>Seller</span>
+        </h1>
+        <p>Create your storefront on Zelo</p>
 
-      <div className="panel">
-        <div className="panel-header"><h2>Sellers awaiting review</h2></div>
-        {data && data.sellers.length === 0 ? (
-          <div className="empty-state">Nothing to review.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Storefront</th>
-                <th>Business License</th>
-                <th>Owner ID</th>
-                <th>Business</th>
-                <th>Category</th>
-                <th>Phone</th>
-                <th>Address</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {data?.sellers.map((s) => (
-                <tr key={s.id}>
-                  <td><DocThumb url={s.image_url} label={`${s.business_name} — Storefront`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={s.business_license_url} label={`${s.business_name} — Business License`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={s.id_document_url} label={`${s.business_name} — Owner ID`} onOpen={openDoc} /></td>
-                  <td>{s.business_name}</td>
-                  <td style={{ textTransform: 'capitalize' }}>{s.category}</td>
-                  <td className="mono">{s.phone}</td>
-                  <td>{s.address}</td>
-                  <td style={{ display: 'flex', gap: 8 }}>
-                    <button className="primary" disabled={busyId === s.id} onClick={() => decide('sellers', s.id, 'approved')}>Approve</button>
-                    <button className="danger" disabled={busyId === s.id} onClick={() => decide('sellers', s.id, 'rejected')}>Reject</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {error && <div className="error-banner">{error}</div>}
+
+        {step === 'details' && (
+          <form onSubmit={requestOtp}>
+            <div className="field">
+              <label htmlFor="businessName">Business name</label>
+              <input
+                id="businessName"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Mama Ngozi Kitchen"
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label>Business type</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setCategory('restaurant')}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: 8,
+                    border: category === 'restaurant' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: category === 'restaurant' ? 'var(--accent-live)' : 'transparent',
+                    color: category === 'restaurant' ? '#fff' : 'inherit',
+                    cursor: 'pointer', fontWeight: 600,
+                  }}
+                >
+                  🍽️ Restaurant
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCategory('store')}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: 8,
+                    border: category === 'store' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: category === 'store' ? 'var(--accent-live)' : 'transparent',
+                    color: category === 'store' ? '#fff' : 'inherit',
+                    cursor: 'pointer', fontWeight: 600,
+                  }}
+                >
+                  🏪 Store
+                </button>
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="phone">Phone number</label>
+              <input
+                id="phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="1 (718) 810-3683"
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="dob">Date of birth</label>
+              <input
+                id="dob"
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="address">Business address</label>
+              <input
+                id="address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="123 Main St, City, State"
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label>Business location</label>
+              <button
+                type="button"
+                onClick={useCurrentLocation}
+                disabled={locating}
+                style={{ width: '100%' }}
+              >
+                {locating
+                  ? 'Getting location...'
+                  : lat !== null
+                  ? 'Location set ✓ (tap to update)'
+                  : 'Use my current location'}
+              </button>
+            </div>
+
+            <div className="field">
+              <label>Storefront media</label>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => { setMediaType('photo'); setImageUrl(''); }}
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: 8,
+                    border: mediaType === 'photo' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: mediaType === 'photo' ? 'var(--accent-live)' : 'transparent',
+                    color: mediaType === 'photo' ? '#fff' : 'inherit', cursor: 'pointer',
+                  }}
+                >
+                  📷 Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMediaType('video'); setImageUrl(''); }}
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: 8,
+                    border: mediaType === 'video' ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                    background: mediaType === 'video' ? 'var(--accent-live)' : 'transparent',
+                    color: mediaType === 'video' ? '#fff' : 'inherit', cursor: 'pointer',
+                  }}
+                >
+                  🎥 Video
+                </button>
+              </div>
+
+              <input
+                id="storeImage"
+                type="file"
+                accept={mediaType === 'video' ? 'video/*' : 'image/*'}
+                onChange={handleImageUpload}
+                disabled={uploading}
+              />
+              {uploading && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {imageUrl && mediaType === 'photo' && (
+                <img
+                  src={imageUrl}
+                  alt="Storefront preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+              {imageUrl && mediaType === 'video' && (
+                <video
+                  src={imageUrl}
+                  controls
+                  style={{ width: '100%', maxHeight: 160, borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
+              <label>Business license</label>
+              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+                Upload a clear photo of your business license or registration document.
+              </p>
+              <input
+                id="businessLicense"
+                type="file"
+                accept="image/*"
+                onChange={handleLicenseUpload}
+                disabled={uploadingLicense}
+              />
+              {uploadingLicense && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {businessLicenseUrl && (
+                <img
+                  src={businessLicenseUrl}
+                  alt="Business license preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
+              <label>Owner government ID (front)</label>
+              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+                Upload a driver's license, state ID, or passport for the business owner.
+              </p>
+              <input
+                id="idDocument"
+                type="file"
+                accept="image/*"
+                onChange={handleIdUpload}
+                disabled={uploadingId}
+              />
+              {uploadingId && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {idDocumentUrl && (
+                <img
+                  src={idDocumentUrl}
+                  alt="ID document front preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
+              <label>Owner government ID (back)</label>
+              <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+                Upload the back of the same ID (skip this if using a passport).
+              </p>
+              <input
+                id="idDocumentBack"
+                type="file"
+                accept="image/*"
+                onChange={handleIdBackUpload}
+                disabled={uploadingIdBack}
+              />
+              {uploadingIdBack && <p style={{ fontSize: 13, opacity: 0.7 }}>Uploading...</p>}
+              {idDocumentBackUrl && (
+                <img
+                  src={idDocumentBackUrl}
+                  alt="ID document back preview"
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }}
+                />
+              )}
+            </div>
+
+            <div className="field">
+              <label>Seller Agreement</label>
+              <button
+                type="button"
+                onClick={() => setPolicyOpen(true)}
+                style={{
+                  width: '100%', padding: '10px', borderRadius: 8,
+                  border: agreedToTos ? '2px solid var(--accent-live)' : '1px solid #ccc',
+                  background: agreedToTos ? 'rgba(0,150,80,0.08)' : 'transparent',
+                  cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                {agreedToTos ? '✅ Agreement accepted (tap to review)' : '📄 Read & agree to Seller Agreement'}
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              className="primary"
+              style={{ width: '100%', marginTop: 8 }}
+              disabled={loading || uploading || uploadingLicense || uploadingId || uploadingIdBack}
+            >
+              {loading ? 'Sending code...' : 'Continue'}
+            </button>
+          </form>
         )}
-      </div>
 
-      <div className="panel">
-        <div className="panel-header"><h2>Drivers awaiting review</h2></div>
-        {data && data.drivers.length === 0 ? (
-          <div className="empty-state">Nothing to review.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID Document</th>
-                <th>License</th>
-                <th>Vehicle Doc</th>
-                <th>Vehicle</th>
-                <th>Phone</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {data?.drivers.map((d) => (
-                <tr key={d.id}>
-                  <td><DocThumb url={d.id_document_url} label={`${d.phone} — ID Document`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={d.license_url} label={`${d.phone} — License`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={d.vehicle_doc_url} label={`${d.phone} — Vehicle Doc`} onOpen={openDoc} /></td>
-                  <td style={{ textTransform: 'capitalize' }}>{d.vehicle_type}</td>
-                  <td className="mono">{d.phone}</td>
-                  <td style={{ display: 'flex', gap: 8 }}>
-                    <button className="primary" disabled={busyId === d.id} onClick={() => decide('drivers', d.id, 'approved')}>Approve</button>
-                    <button className="danger" disabled={busyId === d.id} onClick={() => decide('drivers', d.id, 'rejected')}>Reject</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {step === 'otp' && (
+          <form onSubmit={submit}>
+            <p style={{ fontSize: 14, opacity: 0.8 }}>
+              Enter the verification code sent to {phone}
+            </p>
+            <div className="field">
+              <label htmlFor="otp">Verification code</label>
+              <input
+                id="otp"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="123456"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              className="primary"
+              style={{ width: '100%', marginTop: 8 }}
+              disabled={loading}
+            >
+              {loading ? 'Creating account...' : 'Create seller account'}
+            </button>
+          </form>
         )}
+
+        <p style={{ textAlign: 'center', marginTop: 16 }}>
+          Already have an account? <Link to="/login">Sign in</Link>
+        </p>
       </div>
 
-      <Lightbox doc={lightboxDoc} onClose={() => setLightboxDoc(null)} />
-    </>
+      <PolicyModal
+        open={policyOpen}
+        onAgree={() => { setAgreedToTos(true); setPolicyOpen(false); }}
+        onClose={() => setPolicyOpen(false)}
+      />
+    </div>
   );
 }
