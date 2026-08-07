@@ -45,7 +45,7 @@ router.post('/register', async (req, res, next) => {
     const {
       phone, otp, password, role, email, date_of_birth,
       business_name, category, vehicle_type, address, lat, lng,
-      image_url, business_license_url, business_license_back_url, id_document_url, agreed_to_tos,
+      image_url, business_license_url, id_document_url, id_document_back_url, agreed_to_tos,
     } = req.body;
 
     if (!phone || !otp || !password) {
@@ -105,9 +105,9 @@ router.post('/register', async (req, res, next) => {
         return res.status(400).json({ error: 'You must agree to the Terms of Service' });
       }
       await pool.query(
-       `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, image_url, business_license_url, business_license_back_url, id_document_url, agreed_to_tos, agreed_to_tos_at, verification_status)
+       `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, image_url, business_license_url, id_document_url, id_document_back_url, agreed_to_tos, agreed_to_tos_at, verification_status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), 'pending')`,
-        [user.id, business_name, category || 'restaurant', address, lat, lng, image_url || null, business_license_url || null, business_license_back_url || null, id_document_url || null, true]
+        [user.id, business_name, category || 'restaurant', address, lat, lng, image_url || null, business_license_url || null, id_document_url || null, id_document_back_url || null, true]
       );
     } else if (role === 'driver') {
       if (!vehicle_type) {
