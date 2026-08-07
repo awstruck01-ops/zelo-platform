@@ -1,157 +1,206 @@
-import { useEffect, useState } from 'react';
-import api from '../api';
+const express = require('express');
+const pool = require('../config/db');
+const redis = require('../config/redis');
+const { generateToken } = require('../utils/jwt');
+const { hashPassword, comparePassword, calculateAge } = require('../utils/password');
+const { authMiddleware } = require('../middleware/auth');
+const { Vonage } = require('@vonage/server-sdk');
 
-function DocThumb({ url, label, onOpen }) {
-  if (!url) {
-    return (
-      <div style={{ fontSize: 12, opacity: 0.5, width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed #444', borderRadius: 6 }}>
-        None
-      </div>
-    );
-  }
-  return (
-    <img
-      src={url}
-      alt={label}
-      onClick={() => onOpen(url, label)}
-      style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'cover', cursor: 'pointer', border: '1px solid #333' }}
-    />
-  );
-}
+const vonage = new Vonage({
+  apiKey: process.env.VONAGE_API_KEY,
+  apiSecret: process.env.VONAGE_API_SECRET
+});
 
-function Lightbox({ doc, onClose }) {
-  if (!doc) return null;
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1000, cursor: 'zoom-out', padding: 24,
-      }}
-    >
-      <div style={{ color: '#fff', marginBottom: 12, fontSize: 14, opacity: 0.85 }}>{doc.label} — click anywhere to close</div>
-      <img
-        src={doc.url}
-        alt={doc.label}
-        style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }}
-      />
-    </div>
-  );
-}
+const router = express.Router();
 
-export default function Verifications() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState('');
-  const [busyId, setBusyId] = useState(null);
-  const [lightboxDoc, setLightboxDoc] = useState(null);
+// Send OTP
+router.post('/send-otp', async (req, res, next) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
-  const load = () => {
-    api.get('/admin/verifications/pending')
-      .then((res) => setData(res.data.data))
-      .catch((err) => setError(err.response?.data?.error || 'Failed to load'));
-  };
-  useEffect(() => { load(); }, []);
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await redis.setex(`otp:${phone}`, 300, otp);
 
-  const openDoc = (url, label) => setLightboxDoc({ url, label });
-
-  const decide = async (kind, id, status) => {
-    setBusyId(id);
     try {
-      await api.patch(`/admin/${kind}/${id}/verify`, { status });
-      load();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Action failed');
-    } finally {
-      setBusyId(null);
+        await vonage.sms.send({
+          to: phone.replace('+', ''),
+          from: 'Zelo',
+          text: `Your Zelo verification code is ${otp}`
+        });
+      } catch (smsError) {
+        console.error('Vonage SMS send failed:', smsError.message);
+      }
+      console.log(`📱 OTP for ${phone}: ${otp}`); // kept for backup/debugging
+
+    res.json({ success: true, message: 'OTP sent successfully', expiresIn: 300 });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Register
+router.post('/register', async (req, res, next) => {
+  try {
+    const {
+      phone, otp, password, role, email, date_of_birth,
+      business_name, category, vehicle_type, address, lat, lng,
+      image_url, business_license_url, business_license_back_url, id_document_url, agreed_to_tos,
+    } = req.body;
+
+    if (!phone || !otp || !password) {
+      return res.status(400).json({ error: 'Phone, otp, and password are required' });
     }
-  };
 
-  return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>Verifications</h1>
-          <p>Review documents before a seller or driver goes live</p>
-        </div>
-      </div>
-      {error && <div className="error-banner">{error}</div>}
+    const storedOTP = await redis.get(`otp:${phone}`);
+    if (!storedOTP || storedOTP !== otp) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
 
-      <div className="panel">
-        <div className="panel-header"><h2>Sellers awaiting review</h2></div>
-        {data && data.sellers.length === 0 ? (
-          <div className="empty-state">Nothing to review.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Storefront</th>
-                <th>Business License</th>
-                <th>Owner ID</th>
-                <th>Business</th>
-                <th>Category</th>
-                <th>Phone</th>
-                <th>Address</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {data?.sellers.map((s) => (
-                <tr key={s.id}>
-                  <td><DocThumb url={s.image_url} label={`${s.business_name} — Storefront`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={s.business_license_url} label={`${s.business_name} — Business License`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={s.id_document_url} label={`${s.business_name} — Owner ID`} onOpen={openDoc} /></td>
-                  <td>{s.business_name}</td>
-                  <td style={{ textTransform: 'capitalize' }}>{s.category}</td>
-                  <td className="mono">{s.phone}</td>
-                  <td>{s.address}</td>
-                  <td style={{ display: 'flex', gap: 8 }}>
-                    <button className="primary" disabled={busyId === s.id} onClick={() => decide('sellers', s.id, 'approved')}>Approve</button>
-                    <button className="danger" disabled={busyId === s.id} onClick={() => decide('sellers', s.id, 'rejected')}>Reject</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+    const minAge = parseInt(process.env.MIN_DRIVER_AGE_BICYCLE || '17');
+    if (date_of_birth) {
+      const age = calculateAge(date_of_birth);
+      if (age < minAge) {
+        return res.status(400).json({ error: `You must be at least ${minAge} years old to register` });
+      }
+      // Motorized vehicles have a stricter, legally-driven minimum age requirement.
+      if (role === 'driver' && vehicle_type && vehicle_type !== 'bicycle') {
+        const motorizedMinAge = parseInt(process.env.MIN_DRIVER_AGE_MOTORIZED || '18');
+        if (age < motorizedMinAge) {
+          return res.status(400).json({
+            error: `You must be at least ${motorizedMinAge} years old to register as a motorized driver`,
+          });
+        }
+      }
+    } else {
+      return res.status(400).json({ error: 'Date of birth is required' });
+    }
 
-      <div className="panel">
-        <div className="panel-header"><h2>Drivers awaiting review</h2></div>
-        {data && data.drivers.length === 0 ? (
-          <div className="empty-state">Nothing to review.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID Document</th>
-                <th>License</th>
-                <th>Vehicle Doc</th>
-                <th>Vehicle</th>
-                <th>Phone</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {data?.drivers.map((d) => (
-                <tr key={d.id}>
-                  <td><DocThumb url={d.id_document_url} label={`${d.phone} — ID Document`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={d.license_url} label={`${d.phone} — License`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={d.vehicle_doc_url} label={`${d.phone} — Vehicle Doc`} onOpen={openDoc} /></td>
-                  <td style={{ textTransform: 'capitalize' }}>{d.vehicle_type}</td>
-                  <td className="mono">{d.phone}</td>
-                  <td style={{ display: 'flex', gap: 8 }}>
-                    <button className="primary" disabled={busyId === d.id} onClick={() => decide('drivers', d.id, 'approved')}>Approve</button>
-                    <button className="danger" disabled={busyId === d.id} onClick={() => decide('drivers', d.id, 'rejected')}>Reject</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+    const existingUser = await pool.query('SELECT id FROM users WHERE phone = $1', [phone]);
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({ error: 'Phone number already registered' });
+    }
 
-      <Lightbox doc={lightboxDoc} onClose={() => setLightboxDoc(null)} />
-    </>
-  );
-}
+    const hashedPassword = await hashPassword(password);
+    const userResult = await pool.query(
+      `INSERT INTO users (phone, email, password_hash, role, date_of_birth, status)
+       VALUES ($1, $2, $3, $4, $5, 'active')
+       RETURNING id, phone, email, role, status`,
+      [phone, email || null, hashedPassword, role || 'customer', date_of_birth]
+    );
+    const user = userResult.rows[0];
+
+    if (role === 'customer' || !role) {
+      await pool.query(
+        `INSERT INTO customer_profiles (user_id, saved_addresses, is_verified) VALUES ($1, '[]', true)`,
+        [user.id]
+      );
+    } else if (role === 'seller') {
+      if (!business_name || !address || lat === undefined || lng === undefined) {
+        return res.status(400).json({
+          error: 'business_name, address, lat, and lng are required for sellers',
+        });
+      }
+      if (!agreed_to_tos) {
+        return res.status(400).json({ error: 'You must agree to the Terms of Service' });
+      }
+      await pool.query(
+       `INSERT INTO sellers (user_id, business_name, category, address, geo_lat, geo_lng, image_url, business_license_url, business_license_back_url, id_document_url, agreed_to_tos, agreed_to_tos_at, verification_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), 'pending')`,
+        [user.id, business_name, category || 'restaurant', address, lat, lng, image_url || null, business_license_url || null, business_license_back_url || null, id_document_url || null, true]
+      );
+    } else if (role === 'driver') {
+      if (!vehicle_type) {
+        return res.status(400).json({ error: 'vehicle_type is required for drivers' });
+      }
+      const validVehicles = ['bicycle', 'scooter', 'motorcycle', 'car', 'truck'];
+      if (!validVehicles.includes(vehicle_type)) {
+        return res.status(400).json({ error: `vehicle_type must be one of: ${validVehicles.join(', ')}` });
+      }
+      await pool.query(
+        `INSERT INTO driver_profiles (user_id, vehicle_type, verification_status, is_online)
+         VALUES ($1, $2, 'pending', false)`,
+        [user.id, vehicle_type]
+      );
+    }
+
+    const token = generateToken(user);
+
+    res.status(201).json({
+      success: true,
+      message:
+        role === 'customer' || !role
+          ? 'Registration successful'
+          : 'Registration successful — your account is pending verification before you can go live',
+      data: { user, token },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Login
+router.post('/login', async (req, res, next) => {
+  try {
+    const { phone, password } = req.body;
+    if (!phone || !password) {
+      return res.status(400).json({ error: 'Phone and password are required' });
+    }
+
+    const userResult = await pool.query(
+      'SELECT id, phone, email, password_hash, role, status FROM users WHERE phone = $1',
+      [phone]
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = userResult.rows[0];
+    if (user.status === 'suspended' || user.status === 'blocked') {
+      return res.status(403).json({ error: 'Account is suspended or blocked' });
+    }
+
+    const isValid = await comparePassword(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = generateToken(user);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        user: { id: user.id, phone: user.phone, email: user.email, role: user.role, status: user.status },
+        token,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get profile
+router.get('/profile', authMiddleware, async (req, res, next) => {
+  try {
+    const user = req.user;
+    let profile = null;
+
+    if (user.role === 'customer') {
+      const result = await pool.query('SELECT * FROM customer_profiles WHERE user_id = $1', [user.id]);
+      profile = result.rows[0] || null;
+    } else if (user.role === 'seller') {
+      const result = await pool.query('SELECT * FROM sellers WHERE user_id = $1', [user.id]);
+      profile = result.rows[0] || null;
+    } else if (user.role === 'driver') {
+      const result = await pool.query('SELECT * FROM driver_profiles WHERE user_id = $1', [user.id]);
+      profile = result.rows[0] || null;
+    }
+
+    res.json({ success: true, data: { user, profile } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+module.exports = router;
