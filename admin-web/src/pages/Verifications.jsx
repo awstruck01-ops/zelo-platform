@@ -45,13 +45,24 @@ export default function Verifications() {
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [lightboxDoc, setLightboxDoc] = useState(null);
+  const [taxSubmissions, setTaxSubmissions] = useState([]);
 
   const load = () => {
     api.get('/admin/verifications/pending')
       .then((res) => setData(res.data.data))
       .catch((err) => setError(err.response?.data?.error || 'Failed to load'));
   };
-  useEffect(() => { load(); }, []);
+
+  const loadTaxSubmissions = () => {
+    api.get('/admin/sellers/tax-submissions')
+      .then((res) => setTaxSubmissions(res.data.data))
+      .catch((err) => setError(err.response?.data?.error || 'Failed to load tax submissions'));
+  };
+
+  useEffect(() => {
+    load();
+    loadTaxSubmissions();
+  }, []);
 
   const openDoc = (url, label) => setLightboxDoc({ url, label });
 
@@ -110,6 +121,48 @@ export default function Verifications() {
                   <td style={{ display: 'flex', gap: 8 }}>
                     <button className="primary" disabled={busyId === s.id} onClick={() => decide('sellers', s.id, 'approved')}>Approve</button>
                     <button className="danger" disabled={busyId === s.id} onClick={() => decide('sellers', s.id, 'rejected')}>Reject</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-header"><h2>Seller tax submissions (W-9)</h2></div>
+        {taxSubmissions.length === 0 ? (
+          <div className="empty-state">No submissions yet.</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Business</th>
+                <th>Phone</th>
+                <th>Form Version</th>
+                <th>Submitted</th>
+                <th>Signed</th>
+                <th>Prefilled W-9</th>
+                <th>Signed W-9</th>
+              </tr>
+            </thead>
+            <tbody>
+              {taxSubmissions.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.business_name}</td>
+                  <td className="mono">{t.phone}</td>
+                  <td>{t.version_label || '—'}</td>
+                  <td>{t.created_at ? new Date(t.created_at).toLocaleDateString() : '—'}</td>
+                  <td>{t.signed_at ? new Date(t.signed_at).toLocaleDateString() : '—'}</td>
+                  <td>
+                    {t.prefilled_pdf_url ? (
+                      <a href={t.prefilled_pdf_url} target="_blank" rel="noreferrer">View</a>
+                    ) : '—'}
+                  </td>
+                  <td>
+                    {t.signed_pdf_url ? (
+                      <a href={t.signed_pdf_url} target="_blank" rel="noreferrer">View</a>
+                    ) : '—'}
                   </td>
                 </tr>
               ))}
