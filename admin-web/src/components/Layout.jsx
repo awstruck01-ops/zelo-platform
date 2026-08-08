@@ -2,12 +2,10 @@ import { NavLink, useNavigate, Outlet } from 'react-router-dom';
 
 export default function Layout() {
   const navigate = useNavigate();
-
   const logout = () => {
     localStorage.removeItem('zelo_admin_token');
     navigate('/login');
   };
-
   return (
    <div className="shell">
         <aside className="sidebar">
@@ -20,6 +18,7 @@ export default function Layout() {
         <NavLink to="/transactions" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Transactions</NavLink>
         <NavLink to="/verifications" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Verifications</NavLink>
         <NavLink to="/disputes" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Disputes</NavLink>
+        <NavLink to="/tax-forms" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Tax Forms</NavLink>
         <div style={{ marginTop: 'auto', paddingTop: 24 }}>
           <button onClick={logout} style={{ width: '100%' }}>Sign out</button>
         </div>
