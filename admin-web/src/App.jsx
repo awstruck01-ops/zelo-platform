@@ -6,6 +6,7 @@ import LiveMap from './pages/LiveMap';
 import Transactions from './pages/Transactions';
 import Verifications from './pages/Verifications';
 import Disputes from './pages/Disputes';
+import TaxForms from './pages/TaxForms';
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem('zelo_admin_token');
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="transactions" element={<Transactions />} />
           <Route path="verifications" element={<Verifications />} />
           <Route path="disputes" element={<Disputes />} />
+          <Route path="tax-forms" element={<TaxForms />} />
         </Route>
       </Routes>
     </BrowserRouter>
