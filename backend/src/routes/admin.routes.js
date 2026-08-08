@@ -517,4 +517,31 @@ router.get('/tax-submissions', async (req, res, next) => {
   }
 });
 
+// View all seller tax submissions (W-9s) for compliance/ops review.
+// Mirrors the driver /tax-submissions route above — joins in the seller's
+// business name/contact info and the tax form version label so the admin
+// UI can show a readable table without extra lookups.
+router.get('/sellers/tax-submissions', async (req, res, next) => {
+  try {
+    const { seller_id } = req.query;
+    let query = `
+      SELECT ts.*, s.business_name, u.phone, u.email, tfv.version_label
+      FROM seller_tax_submissions ts
+      JOIN sellers s ON s.id = ts.seller_id
+      JOIN users u ON u.id = s.user_id
+      LEFT JOIN tax_form_versions tfv ON tfv.id = ts.tax_form_version_id
+      WHERE 1=1`;
+    const params = [];
+    if (seller_id) {
+      params.push(seller_id);
+      query += ` AND ts.seller_id = $${params.length}`;
+    }
+    query += ' ORDER BY ts.created_at DESC';
+    const result = await pool.query(query, params);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;
