@@ -2,11 +2,9 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors } from '../../theme';
 import api from '../../api/client';
-import { useAuth } from '../../context/AuthContext';
 
 export default function ChatScreen({ route, navigation }) {
   const { conversationId, title } = route.params;
-  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState('');
@@ -19,6 +17,8 @@ export default function ChatScreen({ route, navigation }) {
     navigation.setOptions({ title: title || 'Chat' });
   }, [title, navigation]);
 
+  // Fetching messages also marks the other party's unread messages as read
+  // on the backend, so no separate "mark read" call is needed here.
   const load = useCallback((silent) => {
     api.get(`/chat/conversations/${conversationId}/messages`)
       .then((res) => setMessages(res.data.data))
@@ -28,7 +28,6 @@ export default function ChatScreen({ route, navigation }) {
 
   useEffect(() => {
     load(false);
-    api.patch(`/chat/conversations/${conversationId}/read`).catch(() => {});
     pollRef.current = setInterval(() => load(true), 4000);
     return () => clearInterval(pollRef.current);
   }, [conversationId, load]);
@@ -49,8 +48,6 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  const mySenderType = user?.role === 'driver' ? 'driver' : user?.role === 'customer' ? 'customer' : 'support';
-
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
 
   return (
@@ -64,7 +61,7 @@ export default function ChatScreen({ route, navigation }) {
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>Say hello 👋</Text>}
         renderItem={({ item }) => {
-          const isMine = item.sender_type === mySenderType;
+          const isMine = item.sender_role !== 'admin';
           return (
             <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
               <Text style={{ color: isMine ? colors.liveText : colors.text }}>{item.body}</Text>
