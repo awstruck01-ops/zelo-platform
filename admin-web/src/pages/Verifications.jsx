@@ -179,9 +179,9 @@ export default function Verifications() {
           <table>
             <thead>
               <tr>
-                <th>ID Document</th>
                 <th>License</th>
-                <th>Vehicle Doc</th>
+                <th>Insurance</th>
+                <th>Selfie</th>
                 <th>Vehicle</th>
                 <th>Phone</th>
                 <th />
@@ -190,9 +190,9 @@ export default function Verifications() {
             <tbody>
               {data?.drivers.map((d) => (
                 <tr key={d.id}>
-                  <td><DocThumb url={d.id_document_url} label={`${d.phone} — ID Document`} onOpen={openDoc} /></td>
                   <td><DocThumb url={d.license_url} label={`${d.phone} — License`} onOpen={openDoc} /></td>
-                  <td><DocThumb url={d.vehicle_doc_url} label={`${d.phone} — Vehicle Doc`} onOpen={openDoc} /></td>
+                  <td><DocThumb url={d.insurance_doc_url} label={`${d.phone} — Insurance`} onOpen={openDoc} /></td>
+                  <td><DocThumb url={d.selfie_url} label={`${d.phone} — Selfie`} onOpen={openDoc} /></td>
                   <td style={{ textTransform: 'capitalize' }}>{d.vehicle_type}</td>
                   <td className="mono">{d.phone}</td>
                   <td style={{ display: 'flex', gap: 8 }}>
