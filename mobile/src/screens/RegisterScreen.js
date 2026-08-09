@@ -44,8 +44,6 @@ export default function RegisterScreen({ navigation }) {
   const [uploadingLicense, setUploadingLicense] = useState(false);
   const [uploadingInsurance, setUploadingInsurance] = useState(false);
   const [uploadingSelfie, setUploadingSelfie] = useState(false);
-  const [w9LegalName, setW9LegalName] = useState('');
-  const [w9TaxId, setW9TaxId] = useState('');
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [showPolicy, setShowPolicy] = useState(false);
 
@@ -161,9 +159,14 @@ export default function RegisterScreen({ navigation }) {
     await uploadAsset(result.assets[0], setSelfieUrl, setUploadingSelfie);
   };
 
+  // Tax info (Form W-9) is deliberately NOT collected here. SSN/EIN is never
+  // gathered at signup — drivers complete their W-9 after approval via the
+  // Tax Form screen, which downloads a prefilled PDF and has them fill in
+  // + upload the signed copy themselves. This matches the seller flow and
+  // keeps SSN/EIN out of our own forms and database entirely.
   const driverFieldsComplete =
     role !== 'driver' ||
-    (licenseUrl && insuranceUrl && selfieUrl && w9LegalName && w9TaxId && agreedToPolicy && email);
+    (licenseUrl && insuranceUrl && selfieUrl && agreedToPolicy && email);
 
   const submit = async () => {
     setError('');
@@ -179,8 +182,6 @@ export default function RegisterScreen({ navigation }) {
         payload.license_url = licenseUrl;
         payload.insurance_doc_url = insuranceUrl;
         payload.selfie_url = selfieUrl;
-        payload.w9_legal_name = w9LegalName;
-        payload.w9_tax_id = w9TaxId;
         payload.agreed_to_policy = true;
       }
       await register(payload);
@@ -298,25 +299,6 @@ export default function RegisterScreen({ navigation }) {
           </TouchableOpacity>
           {selfieUrl ? <Image source={{ uri: selfieUrl }} style={styles.preview} /> : null}
 
-          <Text style={styles.sectionHeader}>Tax information (Form W-9)</Text>
-          <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 8 }}>
-            As an independent contractor, we need this to report your earnings to the IRS.
-          </Text>
-
-          <Text style={styles.label}>Legal name</Text>
-          <TextInput style={styles.input} value={w9LegalName} onChangeText={setW9LegalName} placeholderTextColor={colors.textDim} />
-
-          <Text style={styles.label}>SSN or EIN</Text>
-          <TextInput
-            style={styles.input}
-            value={w9TaxId}
-            onChangeText={setW9TaxId}
-            keyboardType="number-pad"
-            placeholder="XXX-XX-XXXX"
-            placeholderTextColor={colors.textDim}
-            secureTextEntry
-          />
-
           <Text style={styles.sectionHeader}>Driver policy</Text>
           <TouchableOpacity onPress={() => setShowPolicy(!showPolicy)}>
             <Text style={{ color: colors.live, marginBottom: 8 }}>
@@ -339,6 +321,10 @@ export default function RegisterScreen({ navigation }) {
               I have read and agree to the driver policy and independent contractor terms
             </Text>
           </TouchableOpacity>
+
+          <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 16 }}>
+            You'll complete your tax information (Form W-9) after your account is approved.
+          </Text>
         </>
       )}
 
