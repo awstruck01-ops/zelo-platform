@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Alert, Linking } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { colors } from '../../theme';
 import api from '../../api/client';
 
@@ -16,6 +18,7 @@ export default function TaxFormScreen() {
   const [status, setStatus] = useState(null);
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingSigned, setUploadingSigned] = useState(false);
   const [error, setError] = useState('');
 
   const [legalName, setLegalName] = useState('');
@@ -25,8 +28,6 @@ export default function TaxFormScreen() {
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
-  const [taxId, setTaxId] = useState('');
-  const [signatureName, setSignatureName] = useState('');
 
   const load = useCallback(() => {
     api.get('/drivers/me/tax-form/current')
@@ -41,7 +42,6 @@ export default function TaxFormScreen() {
           setCity(sub.city || '');
           setState(sub.state || '');
           setZip(sub.zip || '');
-          setSignatureName(sub.signature_name || '');
         }
         setEditing(res.data.data.needs_submission);
       })
@@ -52,7 +52,7 @@ export default function TaxFormScreen() {
 
   const submit = async () => {
     setError('');
-    if (!legalName || !taxClassification || !address || !city || !state || !zip || !taxId || !signatureName) {
+    if (!legalName || !taxClassification || !address || !city || !state || !zip) {
       setError('Please fill in all fields');
       return;
     }
@@ -63,8 +63,6 @@ export default function TaxFormScreen() {
         business_name: businessName || undefined,
         tax_classification: taxClassification,
         address, city, state, zip,
-        tax_id: taxId,
-        signature_name: signatureName,
       });
       setEditing(false);
       load();
@@ -75,6 +73,71 @@ export default function TaxFormScreen() {
     }
   };
 
+  // Same upload helper pattern used at signup (RegisterScreen.js) — don't set
+  // a Content-Type header manually, React Native needs to generate the
+  // multipart boundary itself.
+  const uploadSignedCopy = async (submissionId, asset) => {
+    setUploadingSigned(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        name: asset.name || asset.fileName || `signed-w9-${Date.now()}.pdf`,
+        type: asset.mimeType || 'application/pdf',
+      });
+      const uploadRes = await api.post('/uploads/registration', formData);
+      await api.patch(`/drivers/me/tax-form/${submissionId}/attach-signed`, {
+        signed_pdf_url: uploadRes.data.data.url,
+      });
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to upload signed copy');
+    } finally {
+      setUploadingSigned(false);
+    }
+  };
+
+  // Let the driver either pick a PDF/photo of the signed form from files, or
+  // take a photo of the printed & signed page directly.
+  const pickSignedCopy = (submissionId) => {
+    Alert.alert(
+      'Upload signed W-9',
+      'Choose a PDF/photo from your files, or take a photo of the signed page',
+      [
+        {
+          text: 'Choose File',
+          onPress: async () => {
+            const result = await DocumentPicker.getDocumentAsync({
+              type: ['application/pdf', 'image/*'],
+              copyToCacheDirectory: true,
+            });
+            if (result.canceled) return;
+            await uploadSignedCopy(submissionId, result.assets[0]);
+          },
+        },
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const permission = await ImagePicker.requestCameraPermissionsAsync();
+            if (!permission.granted) {
+              setError('Camera permission is required to take this photo');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+            if (result.canceled) return;
+            await uploadSignedCopy(submissionId, result.assets[0]);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const openPrefilledPdf = (url) => {
+    Linking.openURL(url).catch(() => setError('Could not open the PDF link'));
+  };
+
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
 
   if (!editing && status?.submission_for_current_version) {
@@ -82,11 +145,46 @@ export default function TaxFormScreen() {
     return (
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 24, paddingTop: 30 }}>
         <View style={styles.upToDateCard}>
-          <Text style={styles.upToDateTitle}>You're up to date ✓</Text>
+          <Text style={styles.upToDateTitle}>Tax information on file ✓</Text>
           <Text style={styles.summaryRow}>Legal name: {sub.legal_name}</Text>
           <Text style={styles.summaryRow}>Classification: {CLASSIFICATIONS.find((c) => c.key === sub.tax_classification)?.label || sub.tax_classification}</Text>
           <Text style={styles.summaryRow}>Address: {sub.address}, {sub.city}, {sub.state} {sub.zip}</Text>
         </View>
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        <Text style={styles.sectionHeader}>Complete your W-9</Text>
+        <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
+          Download your prefilled W-9, fill in your SSN/EIN and signature by hand,
+          then upload the signed copy below. We never collect your SSN/EIN directly.
+        </Text>
+
+        {sub.prefilled_pdf_url ? (
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => openPrefilledPdf(sub.prefilled_pdf_url)}>
+            <Text style={{ color: colors.live, fontWeight: '600' }}>Download prefilled W-9</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Generating your prefilled PDF — check back shortly.</Text>
+        )}
+
+        {sub.signed_pdf_url ? (
+          <View style={[styles.upToDateCard, { marginTop: 14 }]}>
+            <Text style={{ color: colors.live, fontWeight: '600' }}>Signed copy uploaded ✓</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.uploadButton, { marginTop: 14 }]}
+            onPress={() => pickSignedCopy(sub.id)}
+            disabled={uploadingSigned || !sub.prefilled_pdf_url}
+          >
+            {uploadingSigned ? (
+              <ActivityIndicator color={colors.live} />
+            ) : (
+              <Text style={{ color: colors.live }}>Upload signed copy</Text>
+            )}
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.secondaryButton} onPress={() => setEditing(true)}>
           <Text style={{ color: colors.live }}>Resubmit / update info</Text>
         </TouchableOpacity>
@@ -99,6 +197,8 @@ export default function TaxFormScreen() {
       <Text style={styles.title}>Tax information (Form W-9)</Text>
       <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 16 }}>
         As an independent contractor, we need this to report your earnings to the IRS.
+        We'll generate a prefilled W-9 for you to download — you'll add your SSN/EIN
+        and signature by hand and upload the signed copy back.
       </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -139,12 +239,6 @@ export default function TaxFormScreen() {
         </View>
       </View>
 
-      <Text style={styles.label}>SSN or EIN</Text>
-      <TextInput style={styles.input} value={taxId} onChangeText={setTaxId} keyboardType="number-pad" secureTextEntry placeholderTextColor={colors.textDim} />
-
-      <Text style={styles.label}>Signature (type your full legal name)</Text>
-      <TextInput style={styles.input} value={signatureName} onChangeText={setSignatureName} placeholderTextColor={colors.textDim} />
-
       <TouchableOpacity style={styles.primaryButton} onPress={submit} disabled={submitting}>
         {submitting ? <ActivityIndicator color={colors.liveText} /> : <Text style={styles.primaryButtonText}>Submit</Text>}
       </TouchableOpacity>
@@ -155,16 +249,21 @@ export default function TaxFormScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   title: { fontSize: 20, fontWeight: '700', color: colors.text, marginBottom: 4 },
+  sectionHeader: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 20, marginBottom: 4 },
   label: { color: colors.textDim, fontSize: 13, marginBottom: 6, marginTop: 14 },
   input: {
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     borderRadius: 10, padding: 14, color: colors.text, fontSize: 15,
   },
+  uploadButton: {
+    borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: 10,
+    padding: 14, alignItems: 'center',
+  },
   chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 100, paddingVertical: 8, paddingHorizontal: 14 },
   chipActive: { borderColor: colors.live, backgroundColor: colors.liveDim },
   primaryButton: { backgroundColor: colors.live, borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 28 },
   primaryButtonText: { color: colors.liveText, fontWeight: '700', fontSize: 15 },
-  secondaryButton: { alignItems: 'center', padding: 14 },
+  secondaryButton: { alignItems: 'center', padding: 14, marginTop: 6 },
   error: { color: colors.danger, backgroundColor: colors.dangerDim, padding: 12, borderRadius: 8, marginBottom: 12 },
   upToDateCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 20 },
   upToDateTitle: { color: colors.live, fontSize: 17, fontWeight: '700', marginBottom: 12 },
