@@ -29,6 +29,7 @@ export default function Layout() {
         <NavLink to="/" end className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Orders</NavLink>
         <NavLink to="/catalog" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Catalog</NavLink>
         <NavLink to="/earnings" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Earnings</NavLink>
+        <NavLink to="/messages" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Messages</NavLink>
         <div style={{ marginTop: 'auto', paddingTop: 24 }}>
           <button onClick={logout} style={{ width: '100%' }}>Sign out</button>
         </div>
