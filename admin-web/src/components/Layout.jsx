@@ -19,6 +19,7 @@ export default function Layout() {
         <NavLink to="/verifications" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Verifications</NavLink>
         <NavLink to="/disputes" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Disputes</NavLink>
         <NavLink to="/tax-forms" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Tax Forms</NavLink>
+        <NavLink to="/messages" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Messages</NavLink>
         <div style={{ marginTop: 'auto', paddingTop: 24 }}>
           <button onClick={logout} style={{ width: '100%' }}>Sign out</button>
         </div>
