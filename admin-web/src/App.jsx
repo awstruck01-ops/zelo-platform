@@ -7,6 +7,7 @@ import Transactions from './pages/Transactions';
 import Verifications from './pages/Verifications';
 import Disputes from './pages/Disputes';
 import TaxForms from './pages/TaxForms';
+import Messages from './pages/Messages';
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem('zelo_admin_token');
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="verifications" element={<Verifications />} />
           <Route path="disputes" element={<Disputes />} />
           <Route path="tax-forms" element={<TaxForms />} />
+          <Route path="messages" element={<Messages />} />
         </Route>
       </Routes>
     </BrowserRouter>
