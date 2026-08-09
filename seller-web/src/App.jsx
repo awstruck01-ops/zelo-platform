@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import Orders from './pages/Orders';
 import Catalog from './pages/Catalog';
 import Earnings from './pages/Earnings';
+import Messages from './pages/Messages';
 import { AuthProvider } from './context/AuthContext';
 
 function RequireAuth({ children }) {
@@ -30,6 +31,7 @@ export default function App() {
           <Route index element={<Orders />} />
           <Route path="catalog" element={<Catalog />} />
           <Route path="earnings" element={<Earnings />} />
+          <Route path="messages" element={<Messages />} />
         </Route>
       </Routes>
     </BrowserRouter>
