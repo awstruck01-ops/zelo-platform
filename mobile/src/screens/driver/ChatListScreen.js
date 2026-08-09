@@ -21,7 +21,7 @@ export default function ChatListScreen({ navigation }) {
   const contactSupport = async () => {
     setStartingSupport(true);
     try {
-      const res = await api.post('/chat/support');
+      const res = await api.post('/chat/conversations/start');
       navigation.navigate('Chat', { conversationId: res.data.data.id, title: 'Zelo Support' });
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to start support chat');
@@ -51,12 +51,12 @@ export default function ChatListScreen({ navigation }) {
             style={styles.card}
             onPress={() => navigation.navigate('Chat', {
               conversationId: item.id,
-              title: item.type === 'support' ? 'Zelo Support' : (item.business_name || 'Order chat'),
+              title: 'Zelo Support',
             })}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.cardTitle}>{item.type === 'support' ? 'Zelo Support' : (item.business_name || 'Order chat')}</Text>
-              {item.unread_count > 0 && (
+              <Text style={styles.cardTitle}>Zelo Support</Text>
+              {Number(item.unread_count) > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{item.unread_count}</Text>
                 </View>
