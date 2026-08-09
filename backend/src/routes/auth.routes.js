@@ -46,6 +46,13 @@ router.post('/register', async (req, res, next) => {
       phone, otp, password, role, email, date_of_birth,
       business_name, category, vehicle_type, address, lat, lng,
       image_url, business_license_url, id_document_url, id_document_back_url, agreed_to_tos,
+      // Driver verification documents captured at signup (see RegisterScreen.js).
+      // NOTE: we deliberately do NOT accept w9_legal_name/w9_tax_id here even if
+      // a client sends them — SSN/EIN is never collected at signup. Drivers
+      // complete their W-9 later via the tax-form flow (prefilled PDF download +
+      // signed-copy upload), the same way sellers do, so the raw number never
+      // passes through our own form or gets stored as plain text.
+      license_url, insurance_doc_url, selfie_url, agreed_to_policy,
     } = req.body;
 
     if (!phone || !otp || !password) {
@@ -117,10 +124,21 @@ router.post('/register', async (req, res, next) => {
       if (!validVehicles.includes(vehicle_type)) {
         return res.status(400).json({ error: `vehicle_type must be one of: ${validVehicles.join(', ')}` });
       }
+      // license_url/insurance_doc_url/selfie_url are required for admin to be
+      // able to review the driver before approving them — without these the
+      // Verifications page has nothing to show.
+      if (!license_url || !insurance_doc_url || !selfie_url) {
+        return res.status(400).json({
+          error: 'license_url, insurance_doc_url, and selfie_url are required for drivers',
+        });
+      }
       await pool.query(
-        `INSERT INTO driver_profiles (user_id, vehicle_type, verification_status, is_online)
-         VALUES ($1, $2, 'pending', false)`,
-        [user.id, vehicle_type]
+        `INSERT INTO driver_profiles (
+          user_id, vehicle_type, verification_status, is_online,
+          license_url, insurance_doc_url, selfie_url, agreed_to_policy, agreed_to_policy_at
+        )
+         VALUES ($1, $2, 'pending', false, $3, $4, $5, $6, CASE WHEN $6 THEN NOW() ELSE NULL END)`,
+        [user.id, vehicle_type, license_url, insurance_doc_url, selfie_url, !!agreed_to_policy]
       );
     }
 
