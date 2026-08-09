@@ -494,15 +494,19 @@ router.post('/inbox-messages', async (req, res, next) => {
   }
 });
 
-// View all driver tax submissions (for compliance/ops review)
+// View all driver tax submissions (for compliance/ops review).
+// Mirrors the seller /sellers/tax-submissions route below — joins in the
+// tax form version label so the admin UI can show a readable table without
+// extra lookups.
 router.get('/tax-submissions', async (req, res, next) => {
   try {
     const { driver_id } = req.query;
     let query = `
-      SELECT ts.*, d.user_id, u.phone, u.email
+      SELECT ts.*, d.user_id, u.phone, u.email, tfv.version_label
       FROM driver_tax_submissions ts
       JOIN driver_profiles d ON d.id = ts.driver_id
       JOIN users u ON u.id = d.user_id
+      LEFT JOIN tax_form_versions tfv ON tfv.id = ts.tax_form_version_id
       WHERE 1=1`;
     const params = [];
     if (driver_id) {
