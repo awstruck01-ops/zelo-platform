@@ -1,16 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../api';
 
 const POLL_LIST_MS = 8000;
 const POLL_THREAD_MS = 5000;
 
 function conversationLabel(c) {
+  if (c.type === 'order_support') {
+    const orderRef = c.order_id ? `Order #${c.order_id.slice(0, 8)}` : 'Order';
+    const parts = [orderRef];
+    if (c.customer_phone) parts.push(`Customer ${c.customer_phone}`);
+    if (c.driver_phone) parts.push(`Driver ${c.driver_phone}`);
+    return parts.join(' — ');
+  }
   if (c.seller_business_name) return c.seller_business_name;
   if (c.driver_phone) return `Driver ${c.driver_phone}`;
   return 'Unknown';
 }
 
 export default function Messages() {
+  const [searchParams] = useSearchParams();
+  const orderIdParam = searchParams.get('order_id');
+
   const [conversations, setConversations] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -20,11 +31,24 @@ export default function Messages() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const bottomRef = useRef(null);
+  const autoSelectedRef = useRef(false);
 
   const loadConversations = async () => {
     try {
       const res = await api.get('/chat/conversations');
       setConversations(res.data.data);
+
+      // Arriving from the Disputes page with ?order_id= — jump straight to
+      // that order's thread the first time the list loads. Only do this
+      // once per page load so it doesn't fight with the admin manually
+      // clicking a different conversation afterward.
+      if (orderIdParam && !autoSelectedRef.current) {
+        const match = res.data.data.find((c) => c.type === 'order_support' && c.order_id === orderIdParam);
+        if (match) {
+          setSelectedId(match.id);
+          autoSelectedRef.current = true;
+        }
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load conversations');
     } finally {
@@ -46,6 +70,7 @@ export default function Messages() {
     loadConversations();
     const interval = setInterval(loadConversations, POLL_LIST_MS);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -82,7 +107,7 @@ export default function Messages() {
       <div className="page-header">
         <div>
           <h1>Messages</h1>
-          <p>Conversations with sellers and drivers</p>
+          <p>Conversations with sellers and drivers, and customer↔driver order threads</p>
         </div>
       </div>
 
