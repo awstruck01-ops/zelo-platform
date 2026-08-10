@@ -1,87 +1,102 @@
-import { useEffect, useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors } from '../../theme';
 import api from '../../api/client';
 
-export default function ChatListScreen({ navigation }) {
-  const [conversations, setConversations] = useState([]);
+export default function ChatScreen({ route, navigation }) {
+  const { conversationId, title } = route.params;
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [startingSupport, setStartingSupport] = useState(false);
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const pollRef = useRef(null);
+  const listRef = useRef(null);
 
-  const load = useCallback(() => {
-    api.get('/chat/conversations')
-      .then((res) => setConversations(res.data.data))
-      .catch((err) => setError(err.response?.data?.error || 'Failed to load conversations'))
-      .finally(() => { setLoading(false); setRefreshing(false); });
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    navigation.setOptions({ title: title || 'Chat' });
+  }, [title, navigation]);
 
-  const contactSupport = async () => {
-    setStartingSupport(true);
+  // Fetching messages also marks the other party's unread messages as read
+  // on the backend, so no separate "mark read" call is needed here.
+  const load = useCallback((silent) => {
+    api.get(`/chat/conversations/${conversationId}/messages`)
+      .then((res) => setMessages(res.data.data))
+      .catch((err) => { if (!silent) setError(err.response?.data?.error || 'Failed to load messages'); })
+      .finally(() => setLoading(false));
+  }, [conversationId]);
+
+  useEffect(() => {
+    load(false);
+    pollRef.current = setInterval(() => load(true), 4000);
+    return () => clearInterval(pollRef.current);
+  }, [conversationId, load]);
+
+  const send = async () => {
+    if (!body.trim()) return;
+    setSending(true);
+    const outgoing = body.trim();
+    setBody('');
     try {
-      const res = await api.post('/chat/conversations/start');
-      navigation.navigate('Chat', { conversationId: res.data.data.id, title: 'Zelo Support' });
+      await api.post(`/chat/conversations/${conversationId}/messages`, { body: outgoing });
+      load(true);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to start support chat');
+      setError(err.response?.data?.error || 'Failed to send message');
+      setBody(outgoing);
     } finally {
-      setStartingSupport(false);
+      setSending(false);
     }
   };
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity style={styles.supportButton} onPress={contactSupport} disabled={startingSupport}>
-        {startingSupport ? <ActivityIndicator color={colors.liveText} /> : <Text style={styles.supportButtonText}>Contact Zelo Support</Text>}
-      </TouchableOpacity>
-
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-
       <FlatList
-        data={conversations}
-        keyExtractor={(c) => c.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.live} />}
-        contentContainerStyle={{ padding: 16, gap: 10 }}
-        ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 20 }}>No conversations yet.</Text>}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => navigation.navigate('Chat', {
-              conversationId: item.id,
-              title: 'Zelo Support',
-            })}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.cardTitle}>Zelo Support</Text>
-              {Number(item.unread_count) > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{item.unread_count}</Text>
-                </View>
-              )}
+        ref={listRef}
+        data={messages}
+        keyExtractor={(m) => m.id}
+        contentContainerStyle={{ padding: 16, gap: 8 }}
+        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>Say hello 👋</Text>}
+        renderItem={({ item }) => {
+          const isMine = item.sender_role !== 'admin';
+          return (
+            <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
+              <Text style={{ color: isMine ? colors.liveText : colors.text }}>{item.body}</Text>
             </View>
-            {item.last_message ? (
-              <Text style={styles.cardPreview} numberOfLines={1}>{item.last_message}</Text>
-            ) : (
-              <Text style={styles.cardPreview}>No messages yet</Text>
-            )}
-          </TouchableOpacity>
-        )}
+          );
+        }}
       />
-    </View>
+      <View style={styles.inputRow}>
+        <TextInput
+          style={styles.input}
+          value={body}
+          onChangeText={setBody}
+          placeholder="Type a message…"
+          placeholderTextColor={colors.textDim}
+          multiline
+        />
+        <TouchableOpacity style={styles.sendButton} onPress={send} disabled={sending || !body.trim()}>
+          {sending ? <ActivityIndicator color={colors.liveText} /> : <Text style={styles.sendButtonText}>Send</Text>}
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  supportButton: { backgroundColor: colors.live, borderRadius: 10, padding: 14, alignItems: 'center', margin: 16, marginBottom: 4 },
-  supportButtonText: { color: colors.liveText, fontWeight: '700' },
-  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 16 },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  cardPreview: { color: colors.textDim, fontSize: 13, marginTop: 4 },
-  badge: { backgroundColor: colors.live, borderRadius: 100, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  badgeText: { color: colors.liveText, fontSize: 11, fontWeight: '700' },
-  error: { color: colors.danger, padding: 12, marginHorizontal: 16 },
+  bubble: { maxWidth: '80%', borderRadius: 14, padding: 12 },
+  bubbleMine: { backgroundColor: colors.live, alignSelf: 'flex-end' },
+  bubbleTheirs: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignSelf: 'flex-start' },
+  inputRow: { flexDirection: 'row', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: colors.border, alignItems: 'flex-end' },
+  input: {
+    flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, color: colors.text, fontSize: 15, maxHeight: 100,
+  },
+  sendButton: { backgroundColor: colors.live, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 18 },
+  sendButtonText: { color: colors.liveText, fontWeight: '700' },
+  error: { color: colors.danger, padding: 12 },
 });
