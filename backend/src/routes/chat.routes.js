@@ -5,30 +5,31 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const router = express.Router();
 
 // ---------------------------------------------------------------------------
-// Admin <-> seller/driver support conversations.
+// Two kinds of conversations now exist:
 //
-// A seller or driver has at most one 'admin_support' conversation, found via
-// conversations.seller_id / conversations.driver_id. Admin can see and reply
-// to all of them. sender_role on chat_messages is one of
-// 'admin' | 'seller' | 'driver' (matches req.user.role).
+//  - 'admin_support': a seller or driver's support thread with admin.
+//     Scoped by conversations.seller_id / conversations.driver_id.
+//
+//  - 'order_support': a customer <-> driver thread for one specific delivery,
+//     available once a driver has been assigned to the order.
+//     Scoped by conversations.order_id / .customer_id / .driver_id.
+//
+// sender_role on chat_messages is one of 'admin' | 'seller' | 'driver' | 'customer'.
+// For order_support threads we resolve the sender's conversation role by
+// their relationship to the order rather than trusting req.user.role,
+// because a driver account can also place orders as a shopper — see
+// resolveOrderPartyRole() below.
 // ---------------------------------------------------------------------------
 
 // Get (or create) the current seller/driver's support conversation with admin
 router.post('/conversations/start', authMiddleware, roleMiddleware(['seller', 'driver']), async (req, res, next) => {
   try {
-    let ownerColumn, ownerId;
+    const ownerColumn = req.user.role === 'seller' ? 'seller_id' : 'driver_id';
+    const profileTable = req.user.role === 'seller' ? 'sellers' : 'driver_profiles';
 
-    if (req.user.role === 'seller') {
-      const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
-      if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
-      ownerColumn = 'seller_id';
-      ownerId = sellerResult.rows[0].id;
-    } else {
-      const driverResult = await pool.query('SELECT id FROM driver_profiles WHERE user_id = $1', [req.user.id]);
-      if (driverResult.rows.length === 0) return res.status(404).json({ error: 'Driver profile not found' });
-      ownerColumn = 'driver_id';
-      ownerId = driverResult.rows[0].id;
-    }
+    const profileResult = await pool.query(`SELECT id FROM ${profileTable} WHERE user_id = $1`, [req.user.id]);
+    if (profileResult.rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
+    const ownerId = profileResult.rows[0].id;
 
     const existing = await pool.query(
       `SELECT * FROM conversations WHERE type = 'admin_support' AND ${ownerColumn} = $1 LIMIT 1`,
@@ -41,6 +42,53 @@ router.post('/conversations/start', authMiddleware, roleMiddleware(['seller', 'd
     const created = await pool.query(
       `INSERT INTO conversations (type, ${ownerColumn}, status) VALUES ('admin_support', $1, 'open') RETURNING *`,
       [ownerId]
+    );
+    res.status(201).json({ success: true, data: created.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Resolve whether the current user is the customer or the assigned driver on
+// an order. Checks relationship to the order rather than trusting
+// req.user.role, since a driver account can also be the customer on its own
+// order (drivers can shop on Zelo too).
+async function resolveOrderPartyRole(req, order) {
+  if (order.customer_id === req.user.id) return 'customer';
+  const driverResult = await pool.query('SELECT id FROM driver_profiles WHERE user_id = $1', [req.user.id]);
+  if (driverResult.rows.length && driverResult.rows[0].id === order.driver_id) return 'driver';
+  return null;
+}
+
+// Get (or create) the customer<->driver conversation for a specific order.
+// Only available once a driver has been assigned — there's no one to message
+// before that.
+router.post('/conversations/order/:orderId/start', authMiddleware, async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    if (orderResult.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    const order = orderResult.rows[0];
+
+    if (!order.driver_id) {
+      return res.status(400).json({ error: 'This order does not have a driver assigned yet' });
+    }
+
+    const partyRole = await resolveOrderPartyRole(req, order);
+    if (!partyRole) return res.status(403).json({ error: 'Not authorized' });
+
+    const existing = await pool.query(
+      `SELECT * FROM conversations WHERE type = 'order_support' AND order_id = $1 LIMIT 1`,
+      [order.id]
+    );
+    if (existing.rows.length > 0) {
+      return res.json({ success: true, data: existing.rows[0] });
+    }
+
+    const created = await pool.query(
+      `INSERT INTO conversations (type, order_id, customer_id, driver_id, status)
+       VALUES ('order_support', $1, $2, $3, 'open') RETURNING *`,
+      [order.id, order.customer_id, order.driver_id]
     );
     res.status(201).json({ success: true, data: created.rows[0] });
   } catch (error) {
@@ -73,7 +121,7 @@ router.get('/conversations', authMiddleware, async (req, res, next) => {
       if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
       const result = await pool.query(
         `SELECT c.*,
-          (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND is_read = false AND sender_role = 'admin') AS unread_count
+          (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND sender_role != 'seller' AND is_read = false) AS unread_count
          FROM conversations c
          WHERE c.type = 'admin_support' AND c.seller_id = $1
          ORDER BY c.updated_at DESC NULLS LAST`,
@@ -82,16 +130,32 @@ router.get('/conversations', authMiddleware, async (req, res, next) => {
       return res.json({ success: true, data: result.rows });
     }
 
+    // Drivers see both their admin_support thread AND any order_support
+    // threads for deliveries they're currently (or were previously) assigned to.
     if (req.user.role === 'driver') {
       const driverResult = await pool.query('SELECT id FROM driver_profiles WHERE user_id = $1', [req.user.id]);
       if (driverResult.rows.length === 0) return res.status(404).json({ error: 'Driver profile not found' });
       const result = await pool.query(
         `SELECT c.*,
-          (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND is_read = false AND sender_role = 'admin') AS unread_count
+          (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND sender_role != 'driver' AND is_read = false) AS unread_count
          FROM conversations c
-         WHERE c.type = 'admin_support' AND c.driver_id = $1
+         WHERE c.driver_id = $1 AND c.type IN ('admin_support', 'order_support')
          ORDER BY c.updated_at DESC NULLS LAST`,
         [driverResult.rows[0].id]
+      );
+      return res.json({ success: true, data: result.rows });
+    }
+
+    // Customers see their order_support threads — one per order where a
+    // driver has been assigned and a conversation has been started.
+    if (req.user.role === 'customer') {
+      const result = await pool.query(
+        `SELECT c.*,
+          (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND sender_role != 'customer' AND is_read = false) AS unread_count
+         FROM conversations c
+         WHERE c.type = 'order_support' AND c.customer_id = $1
+         ORDER BY c.updated_at DESC NULLS LAST`,
+        [req.user.id]
       );
       return res.json({ success: true, data: result.rows });
     }
@@ -102,52 +166,65 @@ router.get('/conversations', authMiddleware, async (req, res, next) => {
   }
 });
 
-// Verify the current user may access a given conversation.
+// Verify the current user may access a given conversation, and resolve which
+// role they're acting as within it (their conversation role can differ from
+// their account role — a driver account can be the "customer" on its own
+// order; see resolveOrderPartyRole).
 async function assertAccess(req, conversationId) {
   const convResult = await pool.query('SELECT * FROM conversations WHERE id = $1', [conversationId]);
-  if (convResult.rows.length === 0) return { error: 404 };
+  if (convResult.rows.length === 0) return { statusError: 404 };
   const conversation = convResult.rows[0];
 
-  if (req.user.role === 'admin') return { conversation };
+  if (req.user.role === 'admin') return { conversation, actingRole: 'admin' };
 
-  if (req.user.role === 'seller') {
-    const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
-    if (sellerResult.rows.length && sellerResult.rows[0].id === conversation.seller_id) return { conversation };
-    return { error: 403 };
+  if (conversation.type === 'admin_support') {
+    if (req.user.role === 'seller') {
+      const sellerResult = await pool.query('SELECT id FROM sellers WHERE user_id = $1', [req.user.id]);
+      if (sellerResult.rows.length && sellerResult.rows[0].id === conversation.seller_id) {
+        return { conversation, actingRole: 'seller' };
+      }
+      return { statusError: 403 };
+    }
+    if (req.user.role === 'driver') {
+      const driverResult = await pool.query('SELECT id FROM driver_profiles WHERE user_id = $1', [req.user.id]);
+      if (driverResult.rows.length && driverResult.rows[0].id === conversation.driver_id) {
+        return { conversation, actingRole: 'driver' };
+      }
+      return { statusError: 403 };
+    }
+    return { statusError: 403 };
   }
 
-  if (req.user.role === 'driver') {
+  if (conversation.type === 'order_support') {
+    if (conversation.customer_id === req.user.id) return { conversation, actingRole: 'customer' };
     const driverResult = await pool.query('SELECT id FROM driver_profiles WHERE user_id = $1', [req.user.id]);
-    if (driverResult.rows.length && driverResult.rows[0].id === conversation.driver_id) return { conversation };
-    return { error: 403 };
+    if (driverResult.rows.length && driverResult.rows[0].id === conversation.driver_id) {
+      return { conversation, actingRole: 'driver' };
+    }
+    return { statusError: 403 };
   }
 
-  return { error: 403 };
+  return { statusError: 403 };
 }
 
 // Get messages for a specific conversation. Also marks the other party's
 // unread messages as read, since fetching the thread implies viewing it.
 router.get('/conversations/:id/messages', authMiddleware, async (req, res, next) => {
   try {
-    const { conversation, error } = await assertAccess(req, req.params.id);
-    if (error) return res.status(error).json({ error: error === 404 ? 'Conversation not found' : 'Not authorized' });
+    const { conversation, actingRole, statusError } = await assertAccess(req, req.params.id);
+    if (statusError) {
+      return res.status(statusError).json({ error: statusError === 404 ? 'Conversation not found' : 'Not authorized' });
+    }
 
     const messages = await pool.query(
       'SELECT * FROM chat_messages WHERE conversation_id = $1 ORDER BY created_at ASC',
       [conversation.id]
     );
 
-    if (req.user.role === 'admin') {
-      await pool.query(
-        `UPDATE chat_messages SET is_read = true WHERE conversation_id = $1 AND sender_role != 'admin' AND is_read = false`,
-        [conversation.id]
-      );
-    } else {
-      await pool.query(
-        `UPDATE chat_messages SET is_read = true WHERE conversation_id = $1 AND sender_role = 'admin' AND is_read = false`,
-        [conversation.id]
-      );
-    }
+    await pool.query(
+      `UPDATE chat_messages SET is_read = true WHERE conversation_id = $1 AND sender_role != $2 AND is_read = false`,
+      [conversation.id, actingRole]
+    );
 
     res.json({ success: true, data: messages.rows });
   } catch (error) {
@@ -158,8 +235,10 @@ router.get('/conversations/:id/messages', authMiddleware, async (req, res, next)
 // Send a message in a conversation
 router.post('/conversations/:id/messages', authMiddleware, async (req, res, next) => {
   try {
-    const { conversation, error } = await assertAccess(req, req.params.id);
-    if (error) return res.status(error).json({ error: error === 404 ? 'Conversation not found' : 'Not authorized' });
+    const { conversation, actingRole, statusError } = await assertAccess(req, req.params.id);
+    if (statusError) {
+      return res.status(statusError).json({ error: statusError === 404 ? 'Conversation not found' : 'Not authorized' });
+    }
 
     const { body } = req.body;
     if (!body || !body.trim()) return res.status(400).json({ error: 'Message body is required' });
@@ -167,7 +246,7 @@ router.post('/conversations/:id/messages', authMiddleware, async (req, res, next
     const result = await pool.query(
       `INSERT INTO chat_messages (conversation_id, sender_id, sender_role, body, is_read)
        VALUES ($1, $2, $3, $4, false) RETURNING *`,
-      [conversation.id, req.user.id, req.user.role, body.trim()]
+      [conversation.id, req.user.id, actingRole, body.trim()]
     );
 
     await pool.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [conversation.id]);
