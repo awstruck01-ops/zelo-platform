@@ -12,6 +12,7 @@ export default function OrderTrackingScreen({ route, navigation }) {
   const [error, setError] = useState('');
   const [rating, setRating] = useState(0);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [startingChat, setStartingChat] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/orders/${orderId}`)
@@ -35,6 +36,21 @@ export default function OrderTrackingScreen({ route, navigation }) {
     }
   };
 
+  // Only available once a driver has actually been assigned — before that
+  // there's no one on the other end of the thread.
+  const messageDriver = async () => {
+    setStartingChat(true);
+    setError('');
+    try {
+      const res = await api.post(`/chat/conversations/order/${orderId}/start`);
+      navigation.navigate('Chat', { conversationId: res.data.data.id, title: 'Message driver' });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to start chat');
+    } finally {
+      setStartingChat(false);
+    }
+  };
+
   if (!order) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
 
   return (
@@ -47,6 +63,16 @@ export default function OrderTrackingScreen({ route, navigation }) {
       <View style={styles.card}>
         <OrderRail status={order.status} />
       </View>
+
+      {order.driver_id ? (
+        <TouchableOpacity style={styles.messageButton} onPress={messageDriver} disabled={startingChat}>
+          {startingChat ? (
+            <ActivityIndicator color={colors.liveText} />
+          ) : (
+            <Text style={styles.messageButtonText}>Message driver</Text>
+          )}
+        </TouchableOpacity>
+      ) : null}
 
       <View style={styles.card}>
         <Text style={styles.rowLabel}>Total</Text>
@@ -103,4 +129,8 @@ const styles = StyleSheet.create({
   rowValue: { color: colors.text, fontWeight: '600', fontFamily: 'monospace' },
   error: { color: colors.danger, marginBottom: 12 },
   backButton: { marginTop: 12, alignItems: 'center', padding: 12 },
+  messageButton: {
+    backgroundColor: colors.live, borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 12,
+  },
+  messageButtonText: { color: colors.liveText, fontWeight: '700' },
 });
