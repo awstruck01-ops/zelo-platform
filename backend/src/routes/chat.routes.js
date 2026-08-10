@@ -19,6 +19,11 @@ const router = express.Router();
 // their relationship to the order rather than trusting req.user.role,
 // because a driver account can also place orders as a shopper — see
 // resolveOrderPartyRole() below.
+//
+// Admin can view AND send messages in any conversation of either type —
+// assertAccess() below grants admin full access unconditionally. This
+// supports monitoring/intervening in order_support threads for dispute
+// resolution, in addition to the existing admin_support threads.
 // ---------------------------------------------------------------------------
 
 // Get (or create) the current seller/driver's support conversation with admin
@@ -62,7 +67,10 @@ async function resolveOrderPartyRole(req, order) {
 
 // Get (or create) the customer<->driver conversation for a specific order.
 // Only available once a driver has been assigned — there's no one to message
-// before that.
+// before that. This is deliberately not admin-accessible: admin can VIEW and
+// REPLY to a thread once it exists (see GET /conversations below + the
+// existing message routes, both already admin-accessible via assertAccess),
+// but doesn't create threads on the customer/driver's behalf.
 router.post('/conversations/order/:orderId/start', authMiddleware, async (req, res, next) => {
   try {
     const { orderId } = req.params;
@@ -100,10 +108,18 @@ router.post('/conversations/order/:orderId/start', authMiddleware, async (req, r
 router.get('/conversations', authMiddleware, async (req, res, next) => {
   try {
     if (req.user.role === 'admin') {
-      const result = await pool.query(`
+      const { order_id } = req.query;
+
+      // Admin sees BOTH admin_support (seller/driver <-> admin) and
+      // order_support (customer <-> driver) threads, so support/monitoring
+      // and dispute resolution share one list endpoint. order_id lets the
+      // Disputes page jump straight to one order's thread.
+      const adminSupportResult = await pool.query(`
         SELECT c.*,
           s.business_name AS seller_business_name,
           du.phone AS driver_phone,
+          NULL::text AS customer_phone,
+          NULL::uuid AS order_id_display,
           (SELECT body FROM chat_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
           (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND is_read = false AND sender_role != 'admin') AS unread_count
         FROM conversations c
@@ -111,9 +127,37 @@ router.get('/conversations', authMiddleware, async (req, res, next) => {
         LEFT JOIN driver_profiles dp ON dp.id = c.driver_id
         LEFT JOIN users du ON du.id = dp.user_id
         WHERE c.type = 'admin_support'
-        ORDER BY c.updated_at DESC NULLS LAST, c.created_at DESC
       `);
-      return res.json({ success: true, data: result.rows });
+
+      const orderSupportParams = [];
+      let orderSupportFilter = '';
+      if (order_id) {
+        orderSupportParams.push(order_id);
+        orderSupportFilter = ` AND c.order_id = $${orderSupportParams.length}`;
+      }
+      const orderSupportResult = await pool.query(`
+        SELECT c.*,
+          NULL::text AS seller_business_name,
+          du.phone AS driver_phone,
+          cu.phone AS customer_phone,
+          o.id AS order_id_display,
+          (SELECT body FROM chat_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
+          (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND is_read = false AND sender_role != 'admin') AS unread_count
+        FROM conversations c
+        LEFT JOIN orders o ON o.id = c.order_id
+        LEFT JOIN driver_profiles dp ON dp.id = c.driver_id
+        LEFT JOIN users du ON du.id = dp.user_id
+        LEFT JOIN users cu ON cu.id = c.customer_id
+        WHERE c.type = 'order_support'${orderSupportFilter}
+      `, orderSupportParams);
+
+      const combined = [...adminSupportResult.rows, ...orderSupportResult.rows].sort((a, b) => {
+        const aTime = new Date(a.updated_at || a.created_at).getTime();
+        const bTime = new Date(b.updated_at || b.created_at).getTime();
+        return bTime - aTime;
+      });
+
+      return res.json({ success: true, data: combined });
     }
 
     if (req.user.role === 'seller') {
@@ -169,7 +213,9 @@ router.get('/conversations', authMiddleware, async (req, res, next) => {
 // Verify the current user may access a given conversation, and resolve which
 // role they're acting as within it (their conversation role can differ from
 // their account role — a driver account can be the "customer" on its own
-// order; see resolveOrderPartyRole).
+// order; see resolveOrderPartyRole). Admin always has full access, to both
+// admin_support and order_support threads — this is what lets admin monitor
+// and reply to customer<->driver threads for dispute resolution.
 async function assertAccess(req, conversationId) {
   const convResult = await pool.query('SELECT * FROM conversations WHERE id = $1', [conversationId]);
   if (convResult.rows.length === 0) return { statusError: 404 };
