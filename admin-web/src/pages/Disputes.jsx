@@ -1,20 +1,17 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api';
-
 export default function Disputes() {
   const [disputes, setDisputes] = useState([]);
   const [error, setError] = useState('');
   const [notes, setNotes] = useState({});
   const [busyId, setBusyId] = useState(null);
-
   const load = () => {
     api.get('/disputes')
       .then((res) => setDisputes(res.data.data))
       .catch((err) => setError(err.response?.data?.error || 'Failed to load disputes'));
   };
-
   useEffect(() => { load(); }, []);
-
   const resolve = async (id, status) => {
     setBusyId(id);
     try {
@@ -26,7 +23,6 @@ export default function Disputes() {
       setBusyId(null);
     }
   };
-
   return (
     <>
       <div className="page-header">
@@ -35,9 +31,7 @@ export default function Disputes() {
           <p>Complaints raised by customers, sellers, or drivers</p>
         </div>
       </div>
-
       {error && <div className="error-banner">{error}</div>}
-
       <div className="panel">
         {disputes.length === 0 ? (
           <div className="empty-state">No disputes filed.</div>
@@ -60,6 +54,9 @@ export default function Disputes() {
                     ) : (d.resolution_note || '—')}
                   </td>
                   <td style={{ display: 'flex', gap: 8 }}>
+                    <Link to={`/messages?order_id=${d.order_id}`} className="secondary" style={{ alignSelf: 'center' }}>
+                      View chat
+                    </Link>
                     {d.status === 'pending' && (
                       <>
                         <button className="primary" disabled={busyId === d.id} onClick={() => resolve(d.id, 'resolved')}>Resolve</button>
