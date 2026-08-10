@@ -28,6 +28,7 @@ export default function DriverOrderScreen({ route, navigation }) {
   const [order, setOrder] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [startingChat, setStartingChat] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/orders/${orderId}`).then((res) => setOrder(res.data.data)).catch(() => {});
@@ -53,6 +54,22 @@ export default function DriverOrderScreen({ route, navigation }) {
     }
   };
 
+  // Starts (or resumes) the customer<->driver thread for this order. The
+  // route is registered for the driver by this point since they've been
+  // assigned, so there's always a customer to message.
+  const messageCustomer = async () => {
+    setStartingChat(true);
+    setError('');
+    try {
+      const res = await api.post(`/chat/conversations/order/${orderId}/start`);
+      navigation.navigate('Chat', { conversationId: res.data.data.id, title: 'Message customer' });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to start chat');
+    } finally {
+      setStartingChat(false);
+    }
+  };
+
   const openMap = () => {
     if (!order) return;
 
@@ -68,13 +85,6 @@ export default function DriverOrderScreen({ route, navigation }) {
     } catch {
       // keep fallback label
     }
-
-    Alert.alert('Debug', JSON.stringify({
-      seller_lat: order.seller_lat,
-      seller_lng: order.seller_lng,
-      delivery_lat: order.delivery_lat,
-      delivery_lng: order.delivery_lng,
-    }));
 
     navigation.navigate('DriverMap', {
       pickup: {
@@ -107,6 +117,14 @@ export default function DriverOrderScreen({ route, navigation }) {
 
       <TouchableOpacity style={styles.navigateButton} onPress={openMap}>
         <Text style={styles.navigateButtonText}>Open Map</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.navigateButton} onPress={messageCustomer} disabled={startingChat}>
+        {startingChat ? (
+          <ActivityIndicator color={colors.text} />
+        ) : (
+          <Text style={styles.navigateButtonText}>Message customer</Text>
+        )}
       </TouchableOpacity>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
