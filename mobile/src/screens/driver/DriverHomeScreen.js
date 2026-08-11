@@ -15,8 +15,31 @@ export default function DriverHomeScreen({ navigation }) {
   const [toggling, setToggling] = useState(false);
   const [accepting, setAccepting] = useState(null);
   const [locationError, setLocationError] = useState('');
+  const [checkingActiveOrder, setCheckingActiveOrder] = useState(true);
   const pollRef = useRef(null);
   const locationIntervalRef = useRef(null);
+
+  // On launch (and whenever this screen regains focus, e.g. returning from
+  // the background or backing out of DriverOrder), check whether the driver
+  // already has a delivery in progress and route them straight back into it
+  // instead of showing the available-orders list as if nothing were happening.
+  useEffect(() => {
+    const checkActiveOrder = () => {
+      setCheckingActiveOrder(true);
+      api.get('/drivers/me/active-order')
+        .then((res) => {
+          if (res.data.data) {
+            navigation.navigate('DriverOrder', { orderId: res.data.data.id });
+          }
+        })
+        .catch(() => {})
+        .finally(() => setCheckingActiveOrder(false));
+    };
+
+    checkActiveOrder();
+    const unsubscribe = navigation.addListener('focus', checkActiveOrder);
+    return unsubscribe;
+  }, [navigation]);
 
   const loadOrders = useCallback(() => {
     if (!isOnline) { setOrders([]); return; }
@@ -109,6 +132,12 @@ export default function DriverHomeScreen({ navigation }) {
         </View>
       </View>
     );
+  }
+
+  // Avoid flashing the "available orders" list for a moment before we know
+  // whether there's actually an active delivery to redirect into.
+  if (checkingActiveOrder) {
+    return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
   }
 
   return (
