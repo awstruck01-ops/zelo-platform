@@ -3,6 +3,16 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, 
 import { colors } from '../../theme';
 import api from '../../api/client';
 
+// order_support threads get a short, order-specific label; admin_support
+// threads are always the driver's one ongoing thread with Zelo Support.
+function conversationTitle(item) {
+  if (item.type === 'order_support') {
+    const shortId = item.order_display_id ? String(item.order_display_id).slice(0, 8) : '';
+    return `Order #${shortId} — Customer`;
+  }
+  return 'Zelo Support';
+}
+
 export default function ChatListScreen({ navigation }) {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -51,11 +61,11 @@ export default function ChatListScreen({ navigation }) {
             style={styles.card}
             onPress={() => navigation.navigate('Chat', {
               conversationId: item.id,
-              title: 'Zelo Support',
+              title: conversationTitle(item),
             })}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.cardTitle}>Zelo Support</Text>
+              <Text style={styles.cardTitle}>{conversationTitle(item)}</Text>
               {Number(item.unread_count) > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{item.unread_count}</Text>
