@@ -59,8 +59,11 @@ router.get('/transactions', async (req, res, next) => {
     }
 
     // default: orders
+    const { seller_id, driver_id } = req.query;
     let query = 'SELECT * FROM orders WHERE 1=1';
     const params = [];
+    if (seller_id) { params.push(seller_id); query += ` AND seller_id = $${params.length}`; }
+    if (driver_id) { params.push(driver_id); query += ` AND driver_id = $${params.length}`; }
     if (status) { params.push(status); query += ` AND status = $${params.length}`; }
     if (from_date) { params.push(from_date); query += ` AND created_at >= $${params.length}`; }
     if (to_date) { params.push(to_date); query += ` AND created_at <= $${params.length}`; }
@@ -204,6 +207,23 @@ router.get('/sellers', async (req, res, next) => {
        ORDER BY s.created_at DESC`
     );
     res.json({ success: true, data: sellers.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Single seller's full profile + documents, for the admin detail view.
+router.get('/sellers/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT s.*, u.phone, u.email, u.status as account_status
+       FROM sellers s JOIN users u ON u.id = s.user_id
+       WHERE s.id = $1`,
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Seller not found' });
+    res.json({ success: true, data: result.rows[0] });
   } catch (error) {
     next(error);
   }
