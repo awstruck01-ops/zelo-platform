@@ -2,9 +2,11 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors } from '../../theme';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 
 export default function ChatScreen({ route, navigation }) {
   const { conversationId, title } = route.params;
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState('');
@@ -61,7 +63,11 @@ export default function ChatScreen({ route, navigation }) {
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>Say hello 👋</Text>}
         renderItem={({ item }) => {
-          const isMine = item.sender_role !== 'admin';
+          // Compare against the logged-in user's own id, not sender_role —
+          // "not admin" used to stand in for "mine" when every thread was
+          // exactly one non-admin party vs admin, but customer<->driver
+          // threads have two non-admin parties, so that shortcut breaks.
+          const isMine = item.sender_id === user?.id;
           return (
             <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
               <Text style={{ color: isMine ? colors.liveText : colors.text }}>{item.body}</Text>
