@@ -181,8 +181,13 @@ router.get('/conversations', authMiddleware, async (req, res, next) => {
       if (driverResult.rows.length === 0) return res.status(404).json({ error: 'Driver profile not found' });
       const result = await pool.query(
         `SELECT c.*,
+          o.id AS order_display_id,
+          cu.phone AS customer_phone,
+          (SELECT body FROM chat_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
           (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND sender_role != 'driver' AND is_read = false) AS unread_count
          FROM conversations c
+         LEFT JOIN orders o ON o.id = c.order_id
+         LEFT JOIN users cu ON cu.id = c.customer_id
          WHERE c.driver_id = $1 AND c.type IN ('admin_support', 'order_support')
          ORDER BY c.updated_at DESC NULLS LAST`,
         [driverResult.rows[0].id]
