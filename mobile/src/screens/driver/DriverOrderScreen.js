@@ -86,15 +86,30 @@ export default function DriverOrderScreen({ route, navigation }) {
       // keep fallback label
     }
 
+    // Postgres NUMERIC/DECIMAL columns come back from the API as strings
+    // (e.g. "40.6331000"), but react-native-maps requires actual numbers for
+    // marker coordinates — passing strings through crashes with
+    // "Value for latitude cannot be cast from String to double". Convert
+    // explicitly here rather than relying on the caller.
+    const seller_lat = Number(order.seller_lat);
+    const seller_lng = Number(order.seller_lng);
+    const delivery_lat = Number(order.delivery_lat);
+    const delivery_lng = Number(order.delivery_lng);
+
+    if ([seller_lat, seller_lng, delivery_lat, delivery_lng].some((n) => Number.isNaN(n))) {
+      setError('Missing or invalid location data for this order — cannot open map');
+      return;
+    }
+
     navigation.navigate('DriverMap', {
       pickup: {
-        latitude: order.seller_lat,
-        longitude: order.seller_lng,
+        latitude: seller_lat,
+        longitude: seller_lng,
         label: order.business_name || order.seller_address,
       },
       dropoff: {
-        latitude: order.delivery_lat,
-        longitude: order.delivery_lng,
+        latitude: delivery_lat,
+        longitude: delivery_lng,
         label: dropoffLabel,
       },
       phase,
