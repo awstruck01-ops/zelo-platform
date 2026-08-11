@@ -23,44 +23,23 @@ const NEXT_STAGE_FOR_STATUS = {
 // Statuses at or past pickup mean the driver should be navigating to the customer
 const DROPOFF_STATUSES = ['picked_up', 'en_route_to_customer', 'arrived_at_customer'];
 
-// Statuses where the driver is actively working an order and should see the
-// map (used to gate auto-open — no point popping the map for a delivered/
-// cancelled order the driver is just viewing in history).
-const ACTIVE_STATUSES = [
-  'driver_assigned',
-  'driver_arrived_at_seller',
-  'picked_up',
-  'en_route_to_customer',
-  'arrived_at_customer',
-];
-
 export default function DriverOrderScreen({ route, navigation }) {
   const { orderId } = route.params;
   const [order, setOrder] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [startingChat, setStartingChat] = useState(false);
-  const hasAutoOpenedMap = useRef(false);
+  // Guards against re-triggering the auto map-open every time `order` is
+  // refetched (e.g. after advancing a stage) — it should only fire once per
+  // time this screen is freshly pushed onto the stack (a new accept, or a
+  // resume-from-launch after the app was closed/crashed mid-delivery).
+  const autoOpenedMapRef = useRef(false);
 
   const load = useCallback(() => {
     api.get(`/orders/${orderId}`).then((res) => setOrder(res.data.data)).catch(() => {});
   }, [orderId]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Auto-open the map the first time this order's data loads on this screen
-  // — this is the single entry point whether the driver just accepted the
-  // order or is resuming here after the app closed/crashed mid-delivery, so
-  // one guarded effect covers both cases. Only fires for orders still in
-  // progress (not for a completed/cancelled order the driver is just
-  // viewing), and only once per mount so backing out of the map and
-  // returning here doesn't reopen it.
-  useEffect(() => {
-    if (!order || hasAutoOpenedMap.current) return;
-    if (!ACTIVE_STATUSES.includes(order.status)) return;
-    hasAutoOpenedMap.current = true;
-    openMap();
-  }, [order]);
 
   const advance = async (stage) => {
     setBusy(true);
@@ -141,6 +120,20 @@ export default function DriverOrderScreen({ route, navigation }) {
       phase,
     });
   };
+
+  // Auto-open the map the first time this order finishes loading — covers
+  // both a fresh accept (driver expects to start navigating immediately)
+  // and a resume after the app was closed/crashed mid-delivery (driver
+  // should land back on the map, not just the order summary). Only fires
+  // once per screen mount, not on every `order` refetch (e.g. after
+  // advancing a stage), and only for orders that aren't already delivered.
+  useEffect(() => {
+    if (order && !autoOpenedMapRef.current && order.status !== 'delivered' && order.status !== 'completed') {
+      autoOpenedMapRef.current = true;
+      openMap();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order]);
 
   if (!order) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} color={colors.live} />;
 
