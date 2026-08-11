@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { colors } from '../../theme';
 import api from '../../api/client';
@@ -23,18 +23,44 @@ const NEXT_STAGE_FOR_STATUS = {
 // Statuses at or past pickup mean the driver should be navigating to the customer
 const DROPOFF_STATUSES = ['picked_up', 'en_route_to_customer', 'arrived_at_customer'];
 
+// Statuses where the driver is actively working an order and should see the
+// map (used to gate auto-open — no point popping the map for a delivered/
+// cancelled order the driver is just viewing in history).
+const ACTIVE_STATUSES = [
+  'driver_assigned',
+  'driver_arrived_at_seller',
+  'picked_up',
+  'en_route_to_customer',
+  'arrived_at_customer',
+];
+
 export default function DriverOrderScreen({ route, navigation }) {
   const { orderId } = route.params;
   const [order, setOrder] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [startingChat, setStartingChat] = useState(false);
+  const hasAutoOpenedMap = useRef(false);
 
   const load = useCallback(() => {
     api.get(`/orders/${orderId}`).then((res) => setOrder(res.data.data)).catch(() => {});
   }, [orderId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-open the map the first time this order's data loads on this screen
+  // — this is the single entry point whether the driver just accepted the
+  // order or is resuming here after the app closed/crashed mid-delivery, so
+  // one guarded effect covers both cases. Only fires for orders still in
+  // progress (not for a completed/cancelled order the driver is just
+  // viewing), and only once per mount so backing out of the map and
+  // returning here doesn't reopen it.
+  useEffect(() => {
+    if (!order || hasAutoOpenedMap.current) return;
+    if (!ACTIVE_STATUSES.includes(order.status)) return;
+    hasAutoOpenedMap.current = true;
+    openMap();
+  }, [order]);
 
   const advance = async (stage) => {
     setBusy(true);
