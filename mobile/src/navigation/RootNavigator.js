@@ -4,6 +4,7 @@ import { ActivityIndicator, View, Image, Text, TouchableOpacity, StyleSheet } fr
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { CartProvider } from '../context/CartContext';
+import { navigationRef } from './navigationRef';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import SellerListScreen from '../screens/customer/SellerListScreen';
@@ -20,6 +21,7 @@ import TaxFormScreen from '../screens/driver/TaxFormScreen';
 import InboxScreen from '../screens/driver/InboxScreen';
 import ChatListScreen from '../screens/driver/ChatListScreen';
 import ChatScreen from '../screens/driver/ChatScreen';
+import MessageToastOverlay from '../components/MessageToastOverlay';
 const Stack = createNativeStackNavigator();
 const navTheme = {
   ...DefaultTheme,
@@ -72,15 +74,22 @@ function CustomerStack() {
 }
 function DriverStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Zelo Driver', headerShown: false }} />
-      <Stack.Screen name="DriverOrder" component={DriverOrderScreen} options={{ title: 'Active delivery' }} />
-      <Stack.Screen name="DriverMap" component={DriverMapScreen} options={{ title: 'Navigate', headerShown: false }} />
-      <Stack.Screen name="TaxForm" component={TaxFormScreen} options={{ title: 'Tax information' }} />
-      <Stack.Screen name="Inbox" component={InboxScreen} options={{ title: 'Inbox' }} />
-      <Stack.Screen name="ChatList" component={ChatListScreen} options={{ title: 'Messages' }} />
-      <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
-    </Stack.Navigator>
+    <>
+      <Stack.Navigator screenOptions={screenOptions}>
+        <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Zelo Driver', headerShown: false }} />
+        <Stack.Screen name="DriverOrder" component={DriverOrderScreen} options={{ title: 'Active delivery' }} />
+        <Stack.Screen name="DriverMap" component={DriverMapScreen} options={{ title: 'Navigate', headerShown: false }} />
+        <Stack.Screen name="TaxForm" component={TaxFormScreen} options={{ title: 'Tax information' }} />
+        <Stack.Screen name="Inbox" component={InboxScreen} options={{ title: 'Inbox' }} />
+        <Stack.Screen name="ChatList" component={ChatListScreen} options={{ title: 'Messages' }} />
+        <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
+      </Stack.Navigator>
+      {/* Mounted alongside the navigator (not as a Screen) so it floats over
+          whichever driver screen is active — including DriverMap while the
+          driver is navigating — and keeps polling regardless of which
+          screen is on top. */}
+      <MessageToastOverlay />
+    </>
   );
 }
 
@@ -134,5 +143,9 @@ export default function RootNavigator() {
     content = <CustomerStack />;
   }
 
-  return <NavigationContainer theme={navTheme}>{content}</NavigationContainer>;
+  return (
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
+      {content}
+    </NavigationContainer>
+  );
 }
