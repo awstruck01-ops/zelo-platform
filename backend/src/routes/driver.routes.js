@@ -82,7 +82,6 @@ router.get('/me/available-orders', authMiddleware, roleMiddleware(['driver']), a
       [driver.vehicle_type, driver.id]
     );
 
-    // Rank by proximity to the driver's current location (pickup point = seller location)
     const withDistance = result.rows
       .map((order) => ({
         ...order,
@@ -90,7 +89,7 @@ router.get('/me/available-orders', authMiddleware, roleMiddleware(['driver']), a
           Math.round(distanceMiles(driver.current_lat, driver.current_lng, order.seller_lat, order.seller_lng) * 100) /
           100,
       }))
-      .filter((o) => o.distance_to_pickup_mi <= 15) // don't offer pickups too far from the driver
+      .filter((o) => o.distance_to_pickup_mi <= 15)
       .sort((a, b) => a.distance_to_pickup_mi - b.distance_to_pickup_mi);
 
     res.json({ success: true, data: withDistance });
@@ -109,7 +108,6 @@ router.post('/me/orders/:orderId/accept', authMiddleware, roleMiddleware(['drive
 
     await client.query('BEGIN');
 
-    // Lock the row so two drivers can't accept the same order in a race
     const orderResult = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
     if (orderResult.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -163,6 +161,29 @@ router.post('/me/orders/:orderId/reject', authMiddleware, roleMiddleware(['drive
   }
 });
 
+// Returns the driver's current in-progress order, if any — used by the app
+// on launch/resume to route the driver straight back into DriverOrderScreen
+// instead of dropping them on the "available orders" list when they already
+// have a delivery underway.
+router.get('/me/active-order', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+
+    const result = await pool.query(
+      `SELECT * FROM orders
+       WHERE driver_id = $1
+         AND status IN ('driver_assigned', 'driver_arrived_at_seller', 'picked_up', 'en_route_to_customer', 'arrived_at_customer')
+       ORDER BY driver_assigned_at DESC LIMIT 1`,
+      [driver.id]
+    );
+
+    res.json({ success: true, data: result.rows[0] || null });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Update delivery progress: arrived_at_seller | picked_up | en_route_to_customer | arrived_at_customer | delivered
 router.patch('/me/orders/:orderId/progress', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
   try {
@@ -208,9 +229,6 @@ router.patch('/me/orders/:orderId/progress', authMiddleware, roleMiddleware(['dr
         'UPDATE driver_profiles SET is_available = true, total_deliveries = total_deliveries + 1 WHERE id = $1',
         [driver.id]
       );
-      // Autonomous payout: release escrow to seller + driver wallets as soon as delivery is confirmed.
-      // If you'd rather hold a buffer window for dispute protection, delay this call instead of
-      // running it inline here (e.g. via a scheduled job a few hours after delivered_at).
       const completedOrder = await releaseEscrow(orderId);
       result = { rows: [completedOrder] };
     }
@@ -258,8 +276,6 @@ router.get('/me/earnings', authMiddleware, roleMiddleware(['driver']), async (re
 // Tax form (current version + submission) — same versioned system as sellers
 // ---------------------------------------------------------------------------
 
-// Get the currently-active tax form version, plus this driver's most recent
-// submission (if any) so the app can show "you're up to date" vs "please resubmit".
 router.get('/me/tax-form/current', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
   try {
     const driver = await getOwnDriverProfile(req.user.id);
@@ -292,11 +308,6 @@ router.get('/me/tax-form/current', authMiddleware, roleMiddleware(['driver']), a
   }
 });
 
-// Submit the non-sensitive tax-form fields and generate a prefilled copy of
-// the real W-9 for the driver to download. Deliberately does NOT collect
-// tax_id or signature_name here — the driver fills those directly into the
-// downloaded PDF themselves (see /me/tax-form/:id/attach-signed below), so
-// their SSN/EIN never passes through our form or gets stored as raw text.
 router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
   try {
     const driver = await getOwnDriverProfile(req.user.id);
@@ -326,16 +337,11 @@ router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['driver']), a
     );
     const submission = result.rows[0];
 
-    // Keep the summary field on driver_profiles in sync for quick access
-    // elsewhere (admin views, etc). Deliberately does NOT touch w9_tax_id —
-    // the raw SSN/EIN is never collected or stored by our own systems.
     await pool.query(
       `UPDATE driver_profiles SET w9_legal_name = $1, w9_completed_at = NOW() WHERE id = $2`,
       [legal_name, driver.id]
     );
 
-    // Best-effort: if PDF generation fails, the submission itself is still
-    // saved — just without a prefilled copy to download yet.
     try {
       const pdfBuffer = await prefillW9(submission);
       const uploadResult = await new Promise((resolve, reject) => {
@@ -360,9 +366,6 @@ router.post('/me/tax-form/submit', authMiddleware, roleMiddleware(['driver']), a
   }
 });
 
-// Driver uploads their own completed & signed copy (SSN/EIN + signature
-// filled in on their end, via the existing /uploads endpoint) and calls this
-// with the resulting URL to attach it to their submission.
 router.patch('/me/tax-form/:id/attach-signed', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
   try {
     const driver = await getOwnDriverProfile(req.user.id);
@@ -389,8 +392,6 @@ router.patch('/me/tax-form/:id/attach-signed', authMiddleware, roleMiddleware(['
 // Inbox
 // ---------------------------------------------------------------------------
 
-// List inbox messages for this driver: their own targeted messages plus any
-// broadcasts (driver_id IS NULL). Also returns unread_count for the badge.
 router.get('/me/inbox', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
   try {
     const driver = await getOwnDriverProfile(req.user.id);
@@ -419,9 +420,6 @@ router.get('/me/inbox', authMiddleware, roleMiddleware(['driver']), async (req, 
   }
 });
 
-// Mark a single inbox message as read. Broadcast messages (driver_id NULL)
-// can't be UPDATEd per-driver directly since the row is shared — for those we
-// track read state per-driver by cloning a read copy scoped to this driver.
 router.patch('/me/inbox/:id/read', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
   try {
     const driver = await getOwnDriverProfile(req.user.id);
@@ -436,7 +434,6 @@ router.patch('/me/inbox/:id/read', authMiddleware, roleMiddleware(['driver']), a
       return res.status(403).json({ error: 'Not authorized for this message' });
     }
 
-    // Targeted message: just mark it read directly.
     if (message.driver_id === driver.id) {
       const result = await pool.query(
         'UPDATE driver_inbox_messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 RETURNING *',
@@ -445,8 +442,6 @@ router.patch('/me/inbox/:id/read', authMiddleware, roleMiddleware(['driver']), a
       return res.json({ success: true, data: result.rows[0] });
     }
 
-    // Broadcast message: mark this driver's copy read without mutating the
-    // shared row for everyone else, by cloning it into a per-driver read row.
     const existing = await pool.query(
       'SELECT id FROM driver_inbox_messages WHERE driver_id = $1 AND type = $2 AND title = $3 AND created_at = $4',
       [driver.id, message.type, message.title, message.created_at]
