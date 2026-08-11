@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 export default function ChatScreen({ route, navigation }) {
   const { conversationId, title } = route.params;
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState('');
@@ -75,7 +77,7 @@ export default function ChatScreen({ route, navigation }) {
           );
         }}
       />
-      <View style={styles.inputRow}>
+      <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         <TextInput
           style={styles.input}
           value={body}
