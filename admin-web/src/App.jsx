@@ -8,6 +8,11 @@ import Verifications from './pages/Verifications';
 import Disputes from './pages/Disputes';
 import TaxForms from './pages/TaxForms';
 import Messages from './pages/Messages';
+import Restaurants from './pages/Restaurants';
+import Stores from './pages/Stores';
+import Drivers from './pages/Drivers';
+import SellerDetail from './pages/SellerDetail';
+import DriverDetail from './pages/DriverDetail';
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem('zelo_admin_token');
@@ -35,6 +40,11 @@ export default function App() {
           <Route path="disputes" element={<Disputes />} />
           <Route path="tax-forms" element={<TaxForms />} />
           <Route path="messages" element={<Messages />} />
+          <Route path="restaurants" element={<Restaurants />} />
+          <Route path="stores" element={<Stores />} />
+          <Route path="drivers" element={<Drivers />} />
+          <Route path="sellers/:id" element={<SellerDetail />} />
+          <Route path="drivers/:id" element={<DriverDetail />} />
         </Route>
       </Routes>
     </BrowserRouter>
