@@ -13,14 +13,10 @@ export default function Earnings() {
   const [earnings, setEarnings] = useState(null);
   const [wallet, setWallet] = useState(null);
   const [transactions, setTransactions] = useState([]);
-  const [bankAccounts, setBankAccounts] = useState([]);
+  const [stripeStatus, setStripeStatus] = useState(null); // { connected, payouts_enabled }
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-
-  const [bankForm, setBankForm] = useState({ bank_name: '', account_number: '', account_name: '' });
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [selectedBankId, setSelectedBankId] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   // Tax form state
   const [taxStatus, setTaxStatus] = useState(null); // { current_version, submission_for_current_version, needs_submission }
@@ -39,10 +35,7 @@ export default function Earnings() {
       setWallet(res.data.data.wallet);
       setTransactions(res.data.data.transactions);
     }).catch((err) => setError(err.response?.data?.error || 'Failed to load wallet'));
-    api.get('/wallet/me/bank-accounts').then((res) => {
-      setBankAccounts(res.data.data);
-      if (res.data.data.length > 0) setSelectedBankId(res.data.data[0].id);
-    }).catch(() => {});
+    api.get('/sellers/me/stripe/status').then((res) => setStripeStatus(res.data.data)).catch(() => {});
   };
 
   const loadTaxStatus = () => {
@@ -51,41 +44,25 @@ export default function Earnings() {
       .catch((err) => setTaxError(err.response?.data?.error || 'Failed to load tax form status'));
   };
 
-  useEffect(() => { load(); loadTaxStatus(); }, [sellerId]);
-
-  const addBank = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      await api.post('/wallet/me/bank-account', bankForm);
-      setBankForm({ bank_name: '', account_number: '', account_name: '' });
-      setMessage('Bank account saved');
-      load();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save bank account');
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    load();
+    loadTaxStatus();
+    // Landing back here from Stripe's hosted onboarding flow — refresh
+    // status so "Connected" shows up without a manual reload.
+    if (window.location.pathname.includes('stripe-complete')) {
+      setMessage('Bank account setup complete — verifying with Stripe...');
     }
-  };
+  }, [sellerId]);
 
-  const withdraw = async (e) => {
-    e.preventDefault();
-    setBusy(true);
+  const connectBank = async () => {
+    setConnecting(true);
     setError('');
-    setMessage('');
     try {
-      const res = await api.post('/wallet/me/withdraw', {
-        amount: parseFloat(withdrawAmount),
-        bank_account_id: selectedBankId,
-      });
-      setMessage(`Withdrawal ${res.data.data.status} — funds are on the way`);
-      setWithdrawAmount('');
-      load();
+      const res = await api.post('/sellers/me/stripe/onboard');
+      window.location.href = res.data.data.onboarding_url;
     } catch (err) {
-      setError(err.response?.data?.error || 'Withdrawal failed');
-    } finally {
-      setBusy(false);
+      setError(err.response?.data?.error || 'Failed to start bank account setup');
+      setConnecting(false);
     }
   };
 
@@ -142,7 +119,7 @@ export default function Earnings() {
       <div className="page-header">
         <div>
           <h1>Earnings</h1>
-          <p>Track sales and cash out to your bank anytime</p>
+          <p>Track sales — Zelo pays out automatically as each order completes</p>
         </div>
       </div>
 
@@ -151,7 +128,7 @@ export default function Earnings() {
 
       <div className="stat-grid">
         <div className="stat-card">
-          <div className="label">Wallet balance</div>
+          <div className="label">Total paid out</div>
           <div className="value">{formatUSD(wallet?.balance)}</div>
         </div>
         <div className="stat-card">
@@ -252,47 +229,33 @@ export default function Earnings() {
       </div>
 
       <div className="panel">
-        <div className="panel-header"><h2>Withdraw funds</h2></div>
-        <div style={{ padding: 20 }}>
-          {bankAccounts.length === 0 ? (
-            <p style={{ color: 'var(--text-dim)', fontSize: 13 }}>Add a bank account below before withdrawing.</p>
+        <div className="panel-header"><h2>Payouts</h2></div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
+          <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 0 }}>
+            Zelo pays out automatically as soon as each order is completed — your bank
+            details are entered directly with Stripe and never stored on Zelo's servers.
+          </p>
+
+          {!stripeStatus ? (
+            <p style={{ color: 'var(--text-dim)', fontSize: 13 }}>Checking payout status...</p>
+          ) : stripeStatus.payouts_enabled ? (
+            <div className="pill live" style={{ width: 'fit-content' }}>✅ Bank account connected — payouts active</div>
+          ) : stripeStatus.connected ? (
+            <>
+              <div className="pill pending" style={{ width: 'fit-content' }}>⚠️ Setup started but not finished</div>
+              <button className="primary" onClick={connectBank} disabled={connecting} style={{ alignSelf: 'flex-start' }}>
+                {connecting ? 'Redirecting...' : 'Finish bank account setup'}
+              </button>
+            </>
           ) : (
-            <form onSubmit={withdraw} style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
-              <div className="field">
-                <label>Amount ($)</label>
-                <input type="number" min="500" required value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>To account</label>
-                <select value={selectedBankId} onChange={(e) => setSelectedBankId(e.target.value)}>
-                  {bankAccounts.map((b) => (
-                    <option key={b.id} value={b.id}>{b.bank_name} •••• {b.account_number.slice(-4)}</option>
-                  ))}
-                </select>
-              </div>
-              <button type="submit" className="primary" disabled={busy}>{busy ? 'Processing…' : 'Withdraw'}</button>
-            </form>
+            <>
+              <div className="pill neutral" style={{ width: 'fit-content' }}>Not connected yet</div>
+              <button className="primary" onClick={connectBank} disabled={connecting} style={{ alignSelf: 'flex-start' }}>
+                {connecting ? 'Redirecting...' : 'Connect bank account'}
+              </button>
+            </>
           )}
         </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header"><h2>Bank account</h2></div>
-        <form onSubmit={addBank} style={{ padding: 20, display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
-          <div className="field">
-            <label>Bank name</label>
-            <input required value={bankForm.bank_name} onChange={(e) => setBankForm({ ...bankForm, bank_name: e.target.value })} placeholder="GTBank" />
-          </div>
-          <div className="field">
-            <label>Account number</label>
-            <input required value={bankForm.account_number} onChange={(e) => setBankForm({ ...bankForm, account_number: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Account name</label>
-            <input required value={bankForm.account_name} onChange={(e) => setBankForm({ ...bankForm, account_name: e.target.value })} />
-          </div>
-          <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save account'}</button>
-        </form>
       </div>
 
       <div className="panel">
