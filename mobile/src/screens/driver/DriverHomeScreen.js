@@ -171,6 +171,9 @@ export default function DriverHomeScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.navigate('TaxForm')}>
           <Text style={{ color: colors.textDim, fontSize: 13 }}>Tax info</Text>
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Payouts')}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>Payouts</Text>
+        </TouchableOpacity>
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
