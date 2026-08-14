@@ -7,6 +7,7 @@ const { getOrCreateWallet } = require('../utils/wallet');
 const { releaseEscrow } = require('../utils/escrow');
 const { prefillW9 } = require('../utils/prefillW9');
 const { v2: cloudinary } = require('cloudinary');
+const { stripe, createConnectAccount, createOnboardingLink } = require('../utils/stripe_util');
 
 const router = express.Router();
 
@@ -239,7 +240,46 @@ router.patch('/me/orders/:orderId/progress', authMiddleware, roleMiddleware(['dr
   }
 });
 
-// Driver earnings dashboard
+// Driver abandons an in-progress delivery (e.g. car trouble, emergency,
+// illness). Unlike /reject, this is for an order the driver already
+// accepted. Since the order may already be physically with this driver
+// (post-pickup), we don't attempt to silently reassign it to another
+// driver — that requires knowing where the food/driver actually is. Instead
+// this cancels the order outright with the driver's reason recorded, frees
+// the driver back up to receive new orders, and leaves it for admin/support
+// to resolve with the customer (refund, redelivery, etc.).
+router.post('/me/orders/:orderId/abandon', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const { reason } = req.body;
+    if (!reason || !reason.trim()) return res.status(400).json({ error: 'A reason is required to abandon a delivery' });
+
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+
+    const orderCheck = await pool.query('SELECT driver_id, status FROM orders WHERE id = $1', [orderId]);
+    if (orderCheck.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    if (orderCheck.rows[0].driver_id !== driver.id) {
+      return res.status(403).json({ error: 'This order is not assigned to you' });
+    }
+    if (['delivered', 'completed', 'cancelled'].includes(orderCheck.rows[0].status)) {
+      return res.status(400).json({ error: 'This order is already finished and cannot be abandoned' });
+    }
+
+    const result = await pool.query(
+      `UPDATE orders
+       SET status = 'cancelled', cancelled_at = NOW(), cancellation_reason = $1, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [`Driver abandoned delivery: ${reason.trim()}`, orderId]
+    );
+
+    await pool.query('UPDATE driver_profiles SET is_available = true WHERE id = $1', [driver.id]);
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
 router.get('/me/earnings', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
   try {
     const driver = await getOwnDriverProfile(req.user.id);
@@ -266,6 +306,65 @@ router.get('/me/earnings', authMiddleware, roleMiddleware(['driver']), async (re
         rating: driver.rating,
         ...stats.rows[0],
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Stripe Connect onboarding — self-service. An onboarding link also gets
+// generated automatically when admin approves a driver's verification, but
+// there was previously no way for the driver to reach that link themselves
+// (e.g. if they closed the tab, need to update bank details, or weren't
+// approved yet when it was first generated). This lets them (re)start
+// onboarding anytime from their own app.
+// ---------------------------------------------------------------------------
+router.post('/me/stripe/onboard', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+
+    let stripeAccountId = driver.stripe_connect_account_id;
+    if (!stripeAccountId) {
+      stripeAccountId = await createConnectAccount({
+        email: driver.email,
+        type: 'driver',
+        entityId: driver.id,
+      });
+      await pool.query('UPDATE driver_profiles SET stripe_connect_account_id = $1 WHERE id = $2', [
+        stripeAccountId,
+        driver.id,
+      ]);
+    }
+
+    const onboardingUrl = await createOnboardingLink(
+      stripeAccountId,
+      'zelo://stripe-refresh',
+      'zelo://stripe-complete'
+    );
+
+    res.json({ success: true, data: { onboarding_url: onboardingUrl } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reports whether this driver's connected account can actually receive
+// payouts yet, so the app can show "connected" vs. "needs setup".
+router.get('/me/stripe/status', authMiddleware, roleMiddleware(['driver']), async (req, res, next) => {
+  try {
+    const driver = await getOwnDriverProfile(req.user.id);
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+
+    if (!driver.stripe_connect_account_id) {
+      return res.json({ success: true, data: { connected: false, payouts_enabled: false } });
+    }
+
+    const account = await stripe.accounts.retrieve(driver.stripe_connect_account_id);
+    res.json({
+      success: true,
+      data: { connected: true, payouts_enabled: !!account.payouts_enabled },
     });
   } catch (error) {
     next(error);
