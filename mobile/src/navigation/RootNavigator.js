@@ -1,10 +1,11 @@
+import { useEffect } from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View, Image, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, Image, Text, TouchableOpacity, StyleSheet, Linking } from 'react-native';
 import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { CartProvider } from '../context/CartContext';
-import { navigationRef } from './navigationRef';
+import { navigationRef, navigate } from './navigationRef';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import SellerListScreen from '../screens/customer/SellerListScreen';
@@ -18,6 +19,9 @@ import DriverHomeScreen from '../screens/driver/DriverHomeScreen';
 import DriverOrderScreen from '../screens/driver/DriverOrderScreen';
 import DriverMapScreen from '../screens/driver/DriverMapScreen';
 import TaxFormScreen from '../screens/driver/TaxFormScreen';
+import PayoutsScreen from '../screens/driver/PayoutsScreen';
+import StripeCompleteScreen from '../screens/driver/StripeCompleteScreen';
+import StripeRefreshScreen from '../screens/driver/StripeRefreshScreen';
 import InboxScreen from '../screens/driver/InboxScreen';
 import ChatListScreen from '../screens/driver/ChatListScreen';
 import ChatScreen from '../screens/driver/ChatScreen';
@@ -80,6 +84,9 @@ function DriverStack() {
         <Stack.Screen name="DriverOrder" component={DriverOrderScreen} options={{ title: 'Active delivery' }} />
         <Stack.Screen name="DriverMap" component={DriverMapScreen} options={{ title: 'Navigate', headerShown: false }} />
         <Stack.Screen name="TaxForm" component={TaxFormScreen} options={{ title: 'Tax information' }} />
+        <Stack.Screen name="Payouts" component={PayoutsScreen} options={{ title: 'Payouts', headerShown: false }} />
+        <Stack.Screen name="StripeComplete" component={StripeCompleteScreen} options={{ title: 'Bank account connected', headerShown: false }} />
+        <Stack.Screen name="StripeRefresh" component={StripeRefreshScreen} options={{ title: 'Link expired', headerShown: false }} />
         <Stack.Screen name="Inbox" component={InboxScreen} options={{ title: 'Inbox' }} />
         <Stack.Screen name="ChatList" component={ChatListScreen} options={{ title: 'Messages' }} />
         <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
@@ -123,6 +130,31 @@ const chooserStyles = StyleSheet.create({
 
 export default function RootNavigator() {
   const { user, profile, loading, appMode } = useAuth();
+
+  // Stripe's hosted onboarding flow redirects back to zelo://stripe-complete
+  // or zelo://stripe-refresh (configured in the backend's createOnboardingLink
+  // call). Handled here at the top level with the imperative navigate()
+  // helper rather than React Navigation's declarative linking config, since
+  // which stack is even mounted depends on auth/role state that may not be
+  // settled yet when the link arrives.
+  useEffect(() => {
+    const handleUrl = ({ url }) => {
+      if (!url) return;
+      if (url.includes('stripe-complete')) {
+        navigate('StripeComplete');
+      } else if (url.includes('stripe-refresh')) {
+        navigate('StripeRefresh');
+      }
+    };
+
+    // App was already running in the background when the link arrived
+    const subscription = Linking.addEventListener('url', handleUrl);
+    // App was launched cold, directly via the link
+    Linking.getInitialURL().then((url) => { if (url) handleUrl({ url }); });
+
+    return () => subscription.remove();
+  }, []);
+
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center' }}>
