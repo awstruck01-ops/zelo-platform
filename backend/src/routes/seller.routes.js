@@ -4,6 +4,7 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { getOrCreateWallet } = require('../utils/wallet');
 const { prefillW9 } = require('../utils/prefillW9');
 const { v2: cloudinary } = require('cloudinary');
+const { stripe, createConnectAccount, createOnboardingLink } = require('../utils/stripe_util');
 
 const router = express.Router();
 
@@ -251,6 +252,68 @@ router.get('/:id/earnings', authMiddleware, roleMiddleware(['seller', 'admin']),
         wallet: { balance: wallet.balance, pending_balance: wallet.pending_balance },
         ...stats.rows[0],
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Stripe Connect onboarding — self-service. An onboarding link also gets
+// generated automatically when admin approves a seller's verification, but
+// there was previously no way for the seller to reach that link themselves
+// (e.g. if they closed the tab, need to update bank details, or weren't
+// approved yet when it was first generated). This lets them (re)start
+// onboarding anytime from their own dashboard.
+// ---------------------------------------------------------------------------
+router.post('/me/stripe/onboard', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const sellerResult = await pool.query('SELECT * FROM sellers WHERE user_id = $1', [req.user.id]);
+    if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    const seller = sellerResult.rows[0];
+
+    let stripeAccountId = seller.stripe_connect_account_id;
+    if (!stripeAccountId) {
+      stripeAccountId = await createConnectAccount({
+        email: seller.email,
+        type: 'seller',
+        entityId: seller.id,
+      });
+      await pool.query('UPDATE sellers SET stripe_connect_account_id = $1 WHERE id = $2', [
+        stripeAccountId,
+        seller.id,
+      ]);
+    }
+
+    const onboardingUrl = await createOnboardingLink(
+      stripeAccountId,
+      `${process.env.SELLER_WEB_URL}/stripe-refresh`,
+      `${process.env.SELLER_WEB_URL}/stripe-complete`
+    );
+
+    res.json({ success: true, data: { onboarding_url: onboardingUrl } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reports whether this seller's connected account can actually receive
+// payouts yet, so the dashboard can show "connected" vs. "needs setup"
+// without the frontend needing to know anything about Stripe directly.
+router.get('/me/stripe/status', authMiddleware, roleMiddleware(['seller']), async (req, res, next) => {
+  try {
+    const sellerResult = await pool.query('SELECT stripe_connect_account_id FROM sellers WHERE user_id = $1', [req.user.id]);
+    if (sellerResult.rows.length === 0) return res.status(404).json({ error: 'Seller profile not found' });
+    const stripeAccountId = sellerResult.rows[0].stripe_connect_account_id;
+
+    if (!stripeAccountId) {
+      return res.json({ success: true, data: { connected: false, payouts_enabled: false } });
+    }
+
+    const account = await stripe.accounts.retrieve(stripeAccountId);
+    res.json({
+      success: true,
+      data: { connected: true, payouts_enabled: !!account.payouts_enabled },
     });
   } catch (error) {
     next(error);
