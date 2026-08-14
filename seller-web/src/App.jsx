@@ -6,6 +6,8 @@ import Orders from './pages/Orders';
 import Catalog from './pages/Catalog';
 import Earnings from './pages/Earnings';
 import Messages from './pages/Messages';
+import StripeComplete from './pages/StripeComplete';
+import StripeRefresh from './pages/StripeRefresh';
 import { AuthProvider } from './context/AuthContext';
 
 function RequireAuth({ children }) {
@@ -20,6 +22,8 @@ export default function App() {
       <Routes>
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/stripe-complete" element={<StripeComplete />} />
+        <Route path="/stripe-refresh" element={<StripeRefresh />} />
         <Route
           path="/"
           element={
