@@ -48,12 +48,20 @@ router.get('/transactions', async (req, res, next) => {
       return res.json({ success: true, data: result.rows });
     }
 
-    if (type === 'withdrawals') {
-      let query = 'SELECT * FROM withdrawals WHERE 1=1';
+    if (type === 'payouts') {
+      // Real Stripe payout records — replaces the old 'withdrawals' type,
+      // which read from a table nothing writes to anymore now that payouts
+      // happen automatically via Stripe Connect transfers (see escrow.js).
+      let query = `
+        SELECT id, seller_id, driver_id, seller_earnings, driver_earnings, tip_amount,
+               seller_stripe_transfer_id, driver_stripe_transfer_id, completed_at
+        FROM orders
+        WHERE (seller_stripe_transfer_id IS NOT NULL OR driver_stripe_transfer_id IS NOT NULL)`;
       const params = [];
-      if (status) { params.push(status); query += ` AND status = $${params.length}`; }
+      if (from_date) { params.push(from_date); query += ` AND completed_at >= $${params.length}`; }
+      if (to_date) { params.push(to_date); query += ` AND completed_at <= $${params.length}`; }
       params.push(rowLimit);
-      query += ` ORDER BY requested_at DESC LIMIT $${params.length}`;
+      query += ` ORDER BY completed_at DESC LIMIT $${params.length}`;
       const result = await pool.query(query, params);
       return res.json({ success: true, data: result.rows });
     }
@@ -96,7 +104,7 @@ router.get('/revenue', async (req, res, next) => {
         COALESCE(SUM(surcharge_platform_margin), 0) as total_surcharge_margin,
         COALESCE(SUM(service_fee), 0) as total_service_fee,
         COALESCE(SUM(tip_amount), 0) as total_tips,
-        COALESCE(SUM(driver_earnings), 0) as total_driver_earnings,
+        COALESCE(SUM(driver_earnings), 0) as total_driver_earnings_incl_tip,
         COALESCE(SUM(seller_earnings), 0) as total_seller_earnings,
         COUNT(*) as completed_orders,
         COALESCE(SUM(total_amount), 0) as gross_transaction_volume
@@ -112,6 +120,12 @@ router.get('/revenue', async (req, res, next) => {
 
     const row = orderRevenue.rows[0];
     const subRow = subscriptionRevenue.rows[0];
+    // driver_earnings (the orders column) has tip_amount folded into it once
+    // a tip is added — see order.routes.js's tip-update logic, which does
+    // `driver_earnings += tipDifference`. So the raw column sum here isn't
+    // safe to report alongside total_tips without double-counting; subtract
+    // tips back out to get a true "base" figure that's additive with tips.
+    const totalDriverBaseEarnings = parseFloat(row.total_driver_earnings_incl_tip) - parseFloat(row.total_tips);
     // Platform revenue = what Zelo actually keeps. Tips and driver_earnings
     // are payouts, not revenue, so they're reported separately for
     // visibility but deliberately excluded from this total.
@@ -130,10 +144,12 @@ router.get('/revenue', async (req, res, next) => {
           surcharge_margin: Math.round(parseFloat(row.total_surcharge_margin) * 100) / 100,
           service_fee: Math.round(parseFloat(row.total_service_fee) * 100) / 100,
           subscription: Math.round(parseFloat(subRow.total_subscription_revenue) * 100) / 100,
-          tips: Math.round(parseFloat(row.total_tips) * 100) / 100,
         },
+        // driver_earnings + driver_tips are additive — sum them for a
+        // driver's total take-home. seller_earnings is the seller's full
+        // payout. None of this is platform revenue.
         payouts: {
-          driver_earnings: Math.round(parseFloat(row.total_driver_earnings) * 100) / 100,
+          driver_earnings: Math.round(totalDriverBaseEarnings * 100) / 100,
           driver_tips: Math.round(parseFloat(row.total_tips) * 100) / 100,
           seller_earnings: Math.round(parseFloat(row.total_seller_earnings) * 100) / 100,
         },
