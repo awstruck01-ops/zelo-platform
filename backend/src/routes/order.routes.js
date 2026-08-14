@@ -12,8 +12,143 @@ const {
   eligibleVehiclesForWeightClass,
   DEFAULT_RADIUS_MI,
 } = require('../utils/pricing');
+const { stripe } = require('../utils/stripe_util');
 
 const router = express.Router();
+
+// ---------------------------------------------------------------------------
+// Checkout flow, two steps:
+//  1. POST /payment-intent — customer's cart is priced (server-side,
+//     authoritative) and a Stripe PaymentIntent is created for that amount.
+//     No order exists yet, no stock is touched. Returns a client_secret for
+//     the app's PaymentSheet.
+//  2. POST / (create order) — after the customer completes payment in the
+//     app, this is called with the payment_intent_id. The order is only
+//     created after re-verifying with Stripe that the PaymentIntent actually
+//     succeeded AND that its charged amount matches the order's recomputed
+//     total — never trust a client-supplied "it's paid" flag.
+//
+// Pricing is recomputed independently in both steps rather than cached
+// between them, since the cart (item prices/availability) could change in
+// the gap between "get a client_secret" and "confirm payment." If the
+// recomputed total in step 2 doesn't match what was actually charged in
+// step 1, order creation is rejected rather than silently using either
+// value — mismatches should be rare, but need to be surfaced, not papered
+// over with financial code.
+// ---------------------------------------------------------------------------
+
+// Price out a cart and create a Stripe PaymentIntent for the total. Doesn't
+// create an order or touch stock — this is purely a quote + payment setup
+// step, so it doesn't need a DB transaction or row locks.
+router.post('/payment-intent', authMiddleware, ageVerificationMiddleware, async (req, res, next) => {
+  try {
+    const {
+      seller_id, items, delivery_lat, delivery_lng,
+      accept_extended_distance, tip_amount,
+    } = req.body;
+
+    if (!seller_id || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'seller_id and a non-empty items array are required' });
+    }
+    if (delivery_lat === undefined || delivery_lng === undefined) {
+      return res.status(400).json({ error: 'delivery_lat and delivery_lng are required' });
+    }
+
+    const tipAmount = tip_amount !== undefined ? Math.max(0, parseFloat(tip_amount) || 0) : 0;
+
+    const sellerResult = await pool.query(
+      'SELECT * FROM sellers WHERE id = $1 AND verification_status = $2 AND is_available = true',
+      [seller_id, 'approved']
+    );
+    if (sellerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Seller not found or not currently accepting orders' });
+    }
+    const seller = sellerResult.rows[0];
+
+    const distance = distanceMiles(seller.geo_lat, seller.geo_lng, delivery_lat, delivery_lng);
+    const isExtended = distance > (seller.delivery_radius_mi || DEFAULT_RADIUS_MI);
+    if (isExtended && !accept_extended_distance) {
+      return res.status(422).json({
+        error: 'This seller is outside the normal delivery radius',
+        distance_mi: Math.round(distance * 100) / 100,
+        message: 'Resubmit with accept_extended_distance: true to confirm you accept the extra delivery fee',
+      });
+    }
+
+    // Read-only pricing pass — no FOR UPDATE locks, no stock decrement.
+    // Stock is only actually reserved when the order is created in step 2.
+    let subtotal = 0;
+    let requiredVehicleType = null;
+    let heaviestWeightClass = 'light';
+    const weightClassRank = { light: 0, medium: 1, heavy: 2, bulk: 3 };
+
+    for (const line of items) {
+      const itemResult = await pool.query(
+        'SELECT * FROM catalog_items WHERE id = $1 AND seller_id = $2',
+        [line.catalog_item_id, seller_id]
+      );
+      if (itemResult.rows.length === 0) {
+        return res.status(404).json({ error: `Item ${line.catalog_item_id} not found for this seller` });
+      }
+      const item = itemResult.rows[0];
+      if (!item.is_available) {
+        return res.status(400).json({ error: `${item.name} is currently unavailable` });
+      }
+      if (item.stock_qty !== null && item.stock_qty < line.quantity) {
+        return res.status(400).json({ error: `Insufficient stock for ${item.name}` });
+      }
+
+      subtotal += parseFloat(item.price) * line.quantity;
+      if (weightClassRank[item.weight_class] > weightClassRank[heaviestWeightClass]) {
+        heaviestWeightClass = item.weight_class;
+      }
+      if (item.requires_vehicle) requiredVehicleType = item.requires_vehicle;
+    }
+
+    const { commission, sellerEarnings } = calculateCommission(subtotal, seller.commission_rate);
+    const { deliveryFee, driverEarnings, platformMargin, isExtendedDistance } = calculateDeliveryFee(
+      distance,
+      requiredVehicleType || 'motorcycle'
+    );
+    const { surcharge: bulkSurcharge } = calculateSurcharge(heaviestWeightClass);
+    const { serviceFee } = calculateServiceFee(subtotal);
+    const { tax, taxRate } = calculateTax(subtotal, seller.sales_tax_rate ?? undefined);
+    const totalAmount = subtotal + deliveryFee + bulkSurcharge + serviceFee + tax + tipAmount;
+
+    if (totalAmount <= 0) {
+      return res.status(400).json({ error: 'Order total must be greater than zero' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(totalAmount * 100), // Stripe expects cents
+      currency: 'usd',
+      automatic_payment_methods: { enabled: true },
+      metadata: { customer_id: req.user.id, seller_id },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        client_secret: paymentIntent.client_secret,
+        payment_intent_id: paymentIntent.id,
+        breakdown: {
+          subtotal: Math.round(subtotal * 100) / 100,
+          delivery_fee: deliveryFee,
+          bulk_surcharge: bulkSurcharge,
+          service_fee: serviceFee,
+          tax,
+          tax_rate: taxRate,
+          tip_amount: tipAmount,
+          total_amount: Math.round(totalAmount * 100) / 100,
+          distance_mi: Math.round(distance * 100) / 100,
+          is_extended_distance: isExtendedDistance,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Create order
 router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, next) => {
@@ -21,7 +156,7 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
   try {
     const {
       seller_id, items, delivery_address, delivery_lat, delivery_lng,
-      customer_notes, special_instructions, payment_method, processor_ref,
+      customer_notes, special_instructions, payment_intent_id,
       accept_extended_distance, tip_amount,
     } = req.body;
 
@@ -31,8 +166,8 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
     if (delivery_lat === undefined || delivery_lng === undefined || !delivery_address) {
       return res.status(400).json({ error: 'delivery_address, delivery_lat, and delivery_lng are required' });
     }
-    if (!payment_method || !processor_ref) {
-      return res.status(400).json({ error: 'payment_method and processor_ref are required' });
+    if (!payment_intent_id) {
+      return res.status(400).json({ error: 'payment_intent_id is required — call POST /orders/payment-intent first' });
     }
 
     // Validate tip_amount if provided
@@ -142,6 +277,35 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
     // Total amount includes all components: subtotal + delivery_fee + bulk_surcharge + service_fee + tax + tip
     const totalAmount = subtotal + deliveryFee + bulkSurcharge + serviceFee + tax + tipAmount;
 
+    // Verify payment with Stripe directly — never trust a client-supplied
+    // "payment succeeded" flag. Also re-check the charged amount against
+    // this fresh pricing pass: if the cart changed between getting the
+    // client_secret and confirming payment, the amounts won't match and
+    // this rejects rather than silently using either number.
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+    } catch (stripeError) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Could not verify payment with Stripe' });
+    }
+    if (paymentIntent.status !== 'succeeded') {
+      await client.query('ROLLBACK');
+      return res.status(402).json({ error: 'Payment has not been completed yet' });
+    }
+    const expectedAmountCents = Math.round(totalAmount * 100);
+    if (paymentIntent.amount !== expectedAmountCents) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Payment amount does not match the current order total — your cart may have changed. Please try again.',
+      });
+    }
+    const alreadyUsed = await client.query('SELECT id FROM payments WHERE processor_ref = $1', [payment_intent_id]);
+    if (alreadyUsed.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This payment has already been used for an order' });
+    }
+
     const orderResult = await client.query(
       `INSERT INTO orders (
         customer_id, seller_id, status, required_vehicle_type, subtotal, delivery_fee, service_fee,
@@ -170,12 +334,13 @@ router.post('/', authMiddleware, ageVerificationMiddleware, async (req, res, nex
       );
     }
 
-    // Payment record. In production this should be created from a Stripe webhook
-    // confirming the charge, not trusted blindly from client input like this dev version does.
+    // Payment record — now backed by a server-verified Stripe PaymentIntent
+    // (checked above: status === 'succeeded', amount matches the recomputed
+    // total), not trusted blindly from client input.
     await client.query(
       `INSERT INTO payments (order_id, method, processor_ref, amount, status, paid_at)
        VALUES ($1,$2,$3,$4,'paid', NOW())`,
-      [order.id, payment_method, processor_ref, totalAmount]
+      [order.id, 'card', payment_intent_id, totalAmount]
     );
 
     await client.query(
@@ -382,4 +547,3 @@ router.post('/:id/tip', authMiddleware, async (req, res, next) => {
 });
 
 module.exports = router;
-
