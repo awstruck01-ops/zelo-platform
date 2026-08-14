@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Platform, TextInput } from 'react-native';
+import { useStripe } from '@stripe/stripe-react-native';
 import { colors } from '../../theme';
 import api from '../../api/client';
 import { useCart } from '../../context/CartContext';
@@ -30,6 +31,7 @@ export default function CartScreen({ navigation }) {
   const [tipAmount, setTipAmount] = useState(0);
   const [customTip, setCustomTip] = useState('');
   const [useCustomTip, setUseCustomTip] = useState(false);
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
   const selectPresetTip = (amt) => {
     setUseCustomTip(false);
@@ -59,20 +61,64 @@ export default function CartScreen({ navigation }) {
     setPlacing(true);
     setError('');
     try {
-      const res = await api.post('/orders', {
+      const cartItems = items.map((i) => ({ catalog_item_id: i.catalog_item_id, quantity: i.quantity }));
+
+      // Step 1: price the cart server-side and get a PaymentIntent to pay against
+      const intentRes = await api.post('/orders/payment-intent', {
         seller_id: sellerId,
-        items: items.map((i) => ({ catalog_item_id: i.catalog_item_id, quantity: i.quantity })),
-        delivery_address: deliveryAddress,
+        items: cartItems,
         delivery_lat: deliveryLat,
         delivery_lng: deliveryLng,
-        payment_method: 'card',
-        processor_ref: `MOBILE-${Date.now()}`,
         accept_extended_distance: acceptExtended,
         tip_amount: tipAmount,
       });
-      const order = res.data.data;
-      clearCart();
-      navigation.replace('OrderTracking', { orderId: order.id });
+      const { client_secret, payment_intent_id } = intentRes.data.data;
+
+      // Step 2: collect payment with Stripe's hosted sheet (card entry, Apple/Google Pay, etc.)
+      const initResult = await initPaymentSheet({
+        merchantDisplayName: 'Zelo',
+        paymentIntentClientSecret: client_secret,
+      });
+      if (initResult.error) {
+        setError(initResult.error.message || 'Could not set up payment');
+        return;
+      }
+
+      const presentResult = await presentPaymentSheet();
+      if (presentResult.error) {
+        // Canceled or declined — not a bug, just don't proceed to order creation
+        if (presentResult.error.code !== 'Canceled') {
+          setError(presentResult.error.message || 'Payment failed');
+        }
+        return;
+      }
+
+      // Step 3: payment succeeded — now actually create the order. Backend
+      // re-verifies this payment_intent_id with Stripe before trusting it.
+      // This is wrapped separately from steps 1-2 so a failure here (which
+      // happens AFTER the customer has already been charged) gets a
+      // distinct message rather than looking like a generic failed attempt.
+      try {
+        const res = await api.post('/orders', {
+          seller_id: sellerId,
+          items: cartItems,
+          delivery_address: deliveryAddress,
+          delivery_lat: deliveryLat,
+          delivery_lng: deliveryLng,
+          payment_intent_id,
+          accept_extended_distance: acceptExtended,
+          tip_amount: tipAmount,
+        });
+        const order = res.data.data;
+        clearCart();
+        navigation.replace('OrderTracking', { orderId: order.id });
+      } catch (orderErr) {
+        setError(
+          'Your payment went through, but we couldn\'t finish placing the order (' +
+          (orderErr.response?.data?.error || 'unknown error') +
+          '). Please contact support — don\'t place this order again without checking with them first.'
+        );
+      }
     } catch (err) {
       if (err.response?.status === 422) {
         const { message, distance_mi } = err.response.data;
