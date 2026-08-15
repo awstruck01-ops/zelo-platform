@@ -43,7 +43,14 @@
           "locationAlwaysAndWhenInUsePermission": "Zelo uses your location to find nearby sellers, set your delivery address, and match drivers to nearby orders."
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.zelodelivery.zelomobile",
+          "enableGooglePay": true
+        }
+      ]
     ],
     "extra": {
       "eas": {
