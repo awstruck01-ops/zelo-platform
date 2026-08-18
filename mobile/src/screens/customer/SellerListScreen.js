@@ -9,27 +9,31 @@ import { useAuth } from '../../context/AuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_HEIGHT = 220;
-const CAROUSEL_INTERVAL_MS = 5800;
+// How long a slide's video + business name stay held on screen together
+// before advancing to the next slide. Both the video and the name label are
+// driven by the SAME opacity Animated.Value (see opacities[i] below), so
+// they are held and released in lockstep by construction — the name can
+// never show ahead of or behind its matching video.
+const SLIDE_HOLD_MS = 5800;
+const CAROUSEL_INTERVAL_MS = SLIDE_HOLD_MS;
 const CROSSFADE_MS = 600;
 
 const isVideoUrl = (url) => !!url && /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 
-function MediaVideo({ uri, style, active }) {
+function MediaVideo({ uri, style, label }) {
   const player = useVideoPlayer(uri, (player) => {
     player.loop = true;
     player.muted = true;
+    player.play();
   });
 
   useEffect(() => {
-    if (active) {
-      player.play();
-    } else {
-      player.pause();
-    }
-  }, [active, player]);
+    const sub = player.addListener('playToEnd', () => {
+      console.log(`LOOP RESTART @ ${Date.now()}: ${label}`);
+    });
+    return () => sub?.remove();
+  }, [player, label]);
 
-  // pointerEvents="none" — the video surface must not swallow taps, or the
-  // TouchableOpacity wrapping this slide never receives the press.
   return (
     <View style={style} pointerEvents="none">
       <VideoView player={player} style={StyleSheet.absoluteFillObject} contentFit="cover" nativeControls={false} />
@@ -37,22 +41,34 @@ function MediaVideo({ uri, style, active }) {
   );
 }
 
-function MediaThumbnail({ uri, style, active = true }) {
+function MediaThumbnail({ uri, style, active = true, shouldLoad = true, label }) {
   if (!uri) return null;
-  if (isVideoUrl(uri)) return <MediaVideo uri={uri} style={style} active={active} />;
+  if (isVideoUrl(uri)) {
+    if (!shouldLoad) return null;
+    return <MediaVideo uri={uri} style={style} label={label} />;
+  }
   return <Image source={{ uri }} style={style} />;
 }
 
-// Every slide stays mounted the whole time (just hidden/paused), instead of
-// being created fresh when its turn comes up. That means every video already
-// has a decoded first frame ready to show, and every image is already
-// downloaded — eliminating the black/gray flash that showed up when slides
-// were mounted on-demand. Only the active slide actually plays video or
-// receives taps; the rest sit inert underneath.
 function BannerCarousel({ sellers, screenFocused, onPressSeller }) {
   const withImages = sellers.filter((s) => s.image_url);
   const [index, setIndex] = useState(0);
+  // The slide fading OUT stays mounted here until its animation finishes —
+  // fixes the glitch where the old slide's media vanished immediately on
+  // index change, before its fade-out had actually completed, leaving the
+  // new slide's text visible over stale/blank media underneath.
+  const [fadingOutIndex, setFadingOutIndex] = useState(null);
+  const [settled, setSettled] = useState(true);
+  // Tracks which slide is safe to start preloading. Deliberately updated a
+  // beat AFTER the crossfade finishes (in the animation's .start() callback)
+  // rather than computed live from `index` — starting a brand-new video
+  // decoder for the upcoming-next slide at the exact same instant a crossfade
+  // animation begins caused a brief UI-thread stutter that looked like a
+  // skip/jump on the currently-fading slide.
+  const [preloadIndex, setPreloadIndex] = useState(withImages.length > 1 ? 1 : 0);
   const opacities = useRef([]).current;
+  const timeoutRef = useRef(null);
+  const mountedRef = useRef(true);
 
   if (opacities.length !== withImages.length) {
     opacities.length = 0;
@@ -68,46 +84,85 @@ function BannerCarousel({ sellers, screenFocused, onPressSeller }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sellers]);
 
+  // Recursive setTimeout — schedules the next tick only after the current
+  // fade has genuinely finished, so it can't get permanently stuck the way
+  // a flag-based setInterval guard could.
   useEffect(() => {
+    mountedRef.current = true;
+    console.log(`SCHEDULER EFFECT STARTED @ ${Date.now()}`);
     if (!screenFocused || withImages.length < 2) return;
-    const interval = setInterval(() => {
-      setIndex((current) => {
-        const next = (current + 1) % withImages.length;
-        Animated.parallel([
-          Animated.timing(opacities[current], { toValue: 0, duration: CROSSFADE_MS, useNativeDriver: true }),
-          Animated.timing(opacities[next], { toValue: 1, duration: CROSSFADE_MS, useNativeDriver: true }),
-        ]).start();
-        return next;
-      });
-    }, CAROUSEL_INTERVAL_MS);
-    return () => clearInterval(interval);
+
+    const scheduleNext = () => {
+      timeoutRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
+        setSettled(false);
+        setIndex((current) => {
+          const next = (current + 1) % withImages.length;
+          console.log(`TICK @ ${Date.now()}: current=${current}(${withImages[current]?.business_name}) -> next=${next}(${withImages[next]?.business_name}) | total=${withImages.length}`);
+          setFadingOutIndex(current);
+          Animated.parallel([
+            Animated.timing(opacities[current], { toValue: 0, duration: CROSSFADE_MS, useNativeDriver: true }),
+            Animated.timing(opacities[next], { toValue: 1, duration: CROSSFADE_MS, useNativeDriver: true }),
+          ]).start(() => {
+            if (!mountedRef.current) return;
+            setFadingOutIndex(null);
+            setSettled(true);
+            // Only now — after the crossfade is fully done — start preloading
+            // the slide after next, so its decoder doesn't spin up while a
+            // fade animation is actively running.
+            setPreloadIndex((next + 1) % withImages.length);
+            console.log(`PRELOAD SET @ ${Date.now()}: preloadIndex=${(next + 1) % withImages.length}(${withImages[(next + 1) % withImages.length]?.business_name})`);
+            scheduleNext();
+          });
+          return next;
+        });
+      }, CAROUSEL_INTERVAL_MS);
+    };
+
+    scheduleNext();
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(timeoutRef.current);
+    };
   }, [screenFocused, withImages.length, opacities]);
 
   if (withImages.length === 0) return null;
 
+  console.log(`RENDER @ ${Date.now()}: index=${index} fadingOutIndex=${fadingOutIndex} preloadIndex=${preloadIndex}`);
+
   return (
     <View style={{ height: CAROUSEL_HEIGHT, backgroundColor: colors.border }}>
-      {withImages.map((seller, i) => (
-        <Animated.View
-          key={seller.id}
-          pointerEvents={i === index ? 'auto' : 'none'}
-          style={[StyleSheet.absoluteFillObject, { opacity: opacities[i] }]}
-        >
-          <TouchableOpacity activeOpacity={0.9} onPress={() => onPressSeller(seller.id)} style={StyleSheet.absoluteFillObject}>
-            <MediaThumbnail
-              uri={seller.image_url}
-              style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }}
-              active={i === index && screenFocused}
-            />
-            <View style={styles.carouselOverlay}>
-              <Text style={styles.carouselTitle}>{seller.business_name}</Text>
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
-      ))}
+      {withImages.map((seller, i) => {
+        const shouldLoad = i === index || i === preloadIndex || i === fadingOutIndex;
+        const isTappable = i === index && settled;
+        return (
+          <Animated.View
+            key={seller.id}
+            pointerEvents={isTappable ? 'auto' : 'none'}
+            style={[StyleSheet.absoluteFillObject, { opacity: opacities[i] }]}
+          >
+            <TouchableOpacity activeOpacity={0.9} onPress={() => onPressSeller(seller.id)} style={StyleSheet.absoluteFillObject}>
+              <MediaThumbnail
+                uri={seller.image_url}
+                style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }}
+                active={i === index && screenFocused}
+                shouldLoad={shouldLoad}
+                label={seller.business_name}
+              />
+              {shouldLoad && (
+                <View style={styles.carouselOverlay}>
+                  <Text style={styles.carouselTitle}>{seller.business_name}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        );
+      })}
     </View>
   );
 }
+
+const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 40 };
 
 export default function SellerListScreen({ navigation }) {
   const { logout, user, setAppMode } = useAuth();
@@ -118,6 +173,11 @@ export default function SellerListScreen({ navigation }) {
   const [error, setError] = useState('');
   const [coords, setCoords] = useState(null);
   const [locationError, setLocationError] = useState('');
+  const [visibleIds, setVisibleIds] = useState(new Set());
+
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    setVisibleIds(new Set(viewableItems.map((v) => v.item.id)));
+  }).current;
 
   useEffect(() => {
     (async () => {
@@ -185,10 +245,21 @@ export default function SellerListScreen({ navigation }) {
           />
         }
         ListHeaderComponentStyle={{ marginHorizontal: -16, marginBottom: 16 }}
+        stickyHeaderIndices={[0]}
         ListEmptyComponent={<Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 40 }}>No sellers found nearby.</Text>}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={VIEWABILITY_CONFIG}
+        removeClippedSubviews={false}
+        windowSize={7}
+        initialNumToRender={8}
        renderItem={({ item }) => (
          <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SellerDetail', { sellerId: item.id })}>
-  <MediaThumbnail uri={item.image_url} style={styles.cardImage} active={false} />
+  <MediaThumbnail
+    uri={item.image_url}
+    style={styles.cardImage}
+    active={false}
+    shouldLoad={isFocused && visibleIds.has(item.id)}
+  />
   <View style={{ flex: 1 }}>
     <Text style={styles.cardTitle}>{item.business_name}</Text>
     <Text style={styles.cardSub}>{item.category} · {item.item_count} item(s)</Text>

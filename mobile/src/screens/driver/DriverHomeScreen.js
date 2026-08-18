@@ -147,17 +147,25 @@ export default function DriverHomeScreen({ navigation }) {
           <Text style={styles.title}>Delivery requests</Text>
           <Text style={{ color: colors.textDim, textTransform: 'capitalize' }}>{profile?.vehicle_type} driver</Text>
         </View>
-        <View style={{ alignItems: 'center' }}>
-          <Text style={{ color: isOnline ? colors.live : colors.textDim, marginBottom: 4, fontSize: 12 }}>
-            {isOnline ? 'Online' : 'Offline'}
-          </Text>
-          <Switch
-            value={isOnline}
-            onValueChange={toggleOnline}
-            disabled={toggling}
-            trackColor={{ false: colors.border, true: colors.liveDim }}
-            thumbColor={isOnline ? colors.live : colors.textDim}
-          />
+        <View style={{ alignItems: 'flex-end', gap: 6 }}>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ color: isOnline ? colors.live : colors.textDim, marginBottom: 4, fontSize: 12 }}>
+              {isOnline ? 'Online' : 'Offline'}
+            </Text>
+            <Switch
+              value={isOnline}
+              onValueChange={toggleOnline}
+              disabled={toggling}
+              trackColor={{ false: colors.border, true: colors.liveDim }}
+              thumbColor={isOnline ? colors.live : colors.textDim}
+            />
+          </View>
+          <TouchableOpacity onPress={() => setAppMode(null)}>
+            <Text style={{ color: colors.live, fontSize: 13 }}>Switch mode</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={logout}>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>Sign out</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -206,22 +214,13 @@ export default function DriverHomeScreen({ navigation }) {
           )}
         />
       )}
-
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, padding: 16 }}>
-        <TouchableOpacity onPress={() => setAppMode(null)}>
-          <Text style={{ color: colors.live }}>Switch mode</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={logout}>
-          <Text style={{ color: colors.textDim }}>Sign out</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 60 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 20, paddingTop: 60 },
   title: { fontSize: 22, fontWeight: '700', color: colors.text },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 16 },
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
