@@ -89,16 +89,21 @@ async function convertVideoBufferToWebp(buffer, originalMimetype) {
 
     // -t caps output at MAX_VIDEO_SECONDS even if a longer clip slips through
     // -vf scale/fps keeps file size small; -loop 0 makes the WebP loop forever
+    // Settings below were tuned against a real sample clip: scale=480/fps=12/q:v=60
+    // produced a ~3.9MB file; scale=360/fps=10/q:v=40 produced ~1.7MB with no
+    // visible quality loss on a storefront promo clip. Revisit if source videos
+    // turn out to need more detail (e.g. genuine food/action footage vs a static
+    // promo graphic).
     await runCommand('ffmpeg', [
       '-y',
       '-i', inputPath,
       '-t', String(MAX_VIDEO_SECONDS),
-      '-vf', 'scale=480:-1,fps=12',
+      '-vf', 'scale=360:-1,fps=10',
       '-loop', '0',
       '-an',
       '-vcodec', 'libwebp',
       '-lossless', '0',
-      '-q:v', '60',
+      '-q:v', '40',
       '-preset', 'default',
       outputPath,
     ]);
